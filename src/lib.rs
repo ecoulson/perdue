@@ -1,7 +1,9 @@
 pub mod agriculture;
-pub mod html;
-pub mod database;
 pub mod college;
-pub mod salary;
-pub mod education;
+pub mod database;
 pub mod health;
+pub mod html;
+pub mod liberal_arts;
+pub mod salary;
+pub mod scrapper;
+pub mod template;

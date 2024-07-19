@@ -3,7 +3,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
 
-use crate::college::{get_student_by_legal_name, LegalName};
+use crate::college::get_student_by_name;
 
 #[derive(Debug)]
 pub struct Salary {
@@ -34,12 +34,19 @@ pub fn process_salaries(connection_pool: &Pool<SqliteConnectionManager>) -> Vec<
 
     for row in reader.deserialize::<IndianaCompensationRow>() {
         let row = row.unwrap();
+
+        if row.job_title != "Graduate Student" {
+            continue;
+        }
+
         let year: usize = row.year[16..].to_string().parse().unwrap();
-        let names: Vec<&str> = row.name.split(", ").collect();
-        let legal_name = LegalName {
-            legal_first_name: names[1][..names[1].find(" ").unwrap()].to_string(),
-            legal_last_name: names[0].replace(",", ""),
-        };
+        let names: Vec<String> = row
+            .name
+            .rsplit(", ")
+            .map(|part| part.split(" "))
+            .flatten()
+            .map(|part| part.to_string())
+            .collect();
         let amount_usd: usize = row
             .total_compensation
             .replace("$", "")
@@ -47,7 +54,7 @@ pub fn process_salaries(connection_pool: &Pool<SqliteConnectionManager>) -> Vec<
             .replace(".", "")
             .parse()
             .unwrap();
-        let student = get_student_by_legal_name(legal_name, connection_pool);
+        let student = get_student_by_name(&names, connection_pool);
 
         if student.is_none() {
             continue;

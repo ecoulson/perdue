@@ -1,27 +1,29 @@
 use askama::Template;
 use axum::response::IntoResponse;
+use num_format::{Buffer, Locale};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
 
-use crate::{database::DatabaseConnection, html::HtmlTemplate};
+use crate::{database::DatabaseConnection, template::HtmlTemplate};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Office {
     pub building: String,
     pub room: String,
 }
 
+#[derive(Clone)]
 pub struct College {
     pub base_url: String,
+    pub default_office: Office,
+    pub default_department: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GraduateStudent {
     pub id: String,
-    pub name: Vec<String>,
-    pub legal_first_name: String,
-    pub legal_last_name: String,
+    pub names: Vec<String>,
     pub email: String,
     pub department: String,
     pub office: Office,
@@ -59,7 +61,11 @@ pub async fn list_students(
         let name: String = row.get("Name").unwrap();
         let office_raw: String = row.get("Office").unwrap();
         let year: usize = row.get("Year").unwrap();
-        let yearly_compensation: f64 = row.get("AmountUsd").unwrap();
+        let yearly_compensation: usize = row.get("AmountUsd").unwrap();
+        let dollars = yearly_compensation / 100;
+        let cents = yearly_compensation % 100;
+        let mut compensation_buffer = Buffer::default();
+        compensation_buffer.write_formatted(&dollars, &Locale::en);
 
         directory.push(StudentDirectoryRow {
             id: row.get("Id").unwrap(),
@@ -71,7 +77,7 @@ pub async fn list_students(
                 .collect::<Vec<String>>()
                 .join(" "),
             office: serde_json::from_str(&office_raw).unwrap(),
-            yearly_compensation: format!("${:.2}", yearly_compensation / 100.0),
+            yearly_compensation: format!("${}.{}", compensation_buffer.to_string(), cents),
             year,
         });
     }
@@ -81,22 +87,17 @@ pub async fn list_students(
     }
 }
 
-#[derive(Debug)]
-pub struct LegalName {
-    pub legal_first_name: String,
-    pub legal_last_name: String,
-}
-
-pub fn get_student_by_legal_name(
-    legal_name: LegalName,
+pub fn get_student_by_name(
+    names: &Vec<String>,
     connection_pool: &Pool<SqliteConnectionManager>,
 ) -> Option<GraduateStudent> {
     let connection = connection_pool.get().unwrap();
-
-    connection
+    let mut names = names.clone();
+    let mut name = names.join("%").replace("'", "''");
+    let mut student = connection
         .query_row(
-            "SELECT * FROM Students WHERE LegalFirstName = ?1 AND LegalLastName = ?2",
-            (&legal_name.legal_first_name, &legal_name.legal_last_name),
+            "SELECT Id, Email, Name, Office, Department FROM Students WHERE Name LIKE ?1",
+            &[&name],
             |row| {
                 let name: String = row.get("Name").unwrap();
                 let office_raw: String = row.get("Office").unwrap();
@@ -105,14 +106,37 @@ pub fn get_student_by_legal_name(
                     id: row.get("Id").unwrap(),
                     department: row.get("Department").unwrap(),
                     email: row.get("Email").unwrap(),
-                    legal_last_name: row.get("LegalLastName").unwrap(),
-                    legal_first_name: row.get("LegalFirstName").unwrap(),
-                    name: name.split(", ").map(|part| part.to_string()).collect(),
+                    names: name.split(", ").map(|part| part.to_string()).collect(),
                     office: serde_json::from_str(&office_raw).unwrap(),
                 })
             },
         )
-        .ok()
+        .ok();
+
+    while student.is_none() && names.len() > 2 {
+        names.remove(1);
+        name = names.join("%").replace("'", "''");
+        student = connection
+            .query_row(
+                "SELECT Id, Email, Name, Office, Department FROM Students WHERE Name LIKE ?1",
+                &[&name],
+                |row| {
+                    let name: String = row.get("Name").unwrap();
+                    let office_raw: String = row.get("Office").unwrap();
+
+                    Ok(GraduateStudent {
+                        id: row.get("Id").unwrap(),
+                        department: row.get("Department").unwrap(),
+                        email: row.get("Email").unwrap(),
+                        names: name.split(", ").map(|part| part.to_string()).collect(),
+                        office: serde_json::from_str(&office_raw).unwrap(),
+                    })
+                },
+            )
+            .ok();
+    }
+
+    student
 }
 
 pub fn store_students(
@@ -125,13 +149,10 @@ pub fn store_students(
             .map(|student| {
                 format!(
                     "SELECT '{}' AS Id, '{}' AS Name,
-                                                      '{}' LegalFirstName, '{}' LegalLastName,
-                                                      '{}' AS Email, '{}' AS Department,
-                                                      '{}' AS Office\n",
+                      '{}' AS Email, '{}' AS Department,
+                      '{}' AS Office\n",
                     student.id,
-                    student.name.join(", ").replace("'", "''"),
-                    student.legal_first_name.replace("'", "''"),
-                    student.legal_last_name.replace("'", "''"),
+                    student.names.join(" ").replace("'", "''"),
                     student.email.replace("'", "''"),
                     student.department,
                     serde_json::to_string(&student.office).unwrap()
@@ -144,8 +165,7 @@ pub fn store_students(
             .unwrap()
             .execute(
                 &format!(
-                    "INSERT OR REPLACE INTO Students 
-            (Id, Name, LegalFirstName, LegalLastName, Email, Department, Office) {query}"
+                    "INSERT OR REPLACE INTO Students (Id, Name, Email, Department, Office) {query}"
                 ),
                 [],
             )
