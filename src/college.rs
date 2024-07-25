@@ -1,13 +1,15 @@
+use std::{io::Cursor, str::FromStr};
+
 use askama::Template;
-use axum::response::IntoResponse;
 use num_format::{Buffer, Locale};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+use tiny_http::{Header, Response};
 
-use crate::{database::DatabaseConnection, template::HtmlTemplate};
+use crate::scrapper::ScrapeResult;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct Office {
     pub building: String,
     pub room: String,
@@ -20,7 +22,7 @@ pub struct College {
     pub default_department: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct GraduateStudent {
     pub id: String,
     pub names: Vec<String>,
@@ -45,9 +47,8 @@ pub struct StudentDirectoryRow {
     pub year: usize,
 }
 
-pub async fn list_students(
-    DatabaseConnection(connection): DatabaseConnection,
-) -> impl IntoResponse {
+pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Response<Cursor<Vec<u8>>> {
+    let connection = connection_pool.get().unwrap();
     let mut statement = connection
         .prepare(
             "SELECT Id, Department, Email, Name, Office, Year, AmountUsd 
@@ -82,9 +83,8 @@ pub async fn list_students(
         });
     }
 
-    HtmlTemplate {
-        template: ListStudents { directory },
-    }
+    Response::from_string(ListStudents { directory }.to_string())
+        .with_header(Header::from_str("Content-Type: text/html").unwrap())
 }
 
 pub fn get_student_by_name(
@@ -140,14 +140,14 @@ pub fn get_student_by_name(
 }
 
 pub fn store_students(
-    students: &Vec<GraduateStudent>,
+    students: &Vec<ScrapeResult>,
     connection_pool: &Pool<SqliteConnectionManager>,
 ) {
     for students_chunk in students.chunks(50) {
         let query = students_chunk
             .iter()
-            .map(|student| {
-                format!(
+            .filter_map(|student| match student {
+                ScrapeResult::Success(student) => Some(format!(
                     "SELECT '{}' AS Id, '{}' AS Name,
                       '{}' AS Email, '{}' AS Department,
                       '{}' AS Office\n",
@@ -156,7 +156,11 @@ pub fn store_students(
                     student.email.replace("'", "''"),
                     student.department,
                     serde_json::to_string(&student.office).unwrap()
-                )
+                )),
+                ScrapeResult::Error(error) => {
+                    eprintln!("{}", error.message);
+                    None
+                }
             })
             .collect::<Vec<String>>()
             .join("UNION ALL ");

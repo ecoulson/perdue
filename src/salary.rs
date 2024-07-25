@@ -28,8 +28,12 @@ pub struct IndianaCompensationRow {
     total_compensation: String,
 }
 
-pub fn process_salaries(connection_pool: &Pool<SqliteConnectionManager>) -> Vec<Salary> {
-    let mut reader = Reader::from_path("data/perdue_salaries_2023.csv").unwrap();
+pub fn process_salaries(
+    connection_pool: &Pool<SqliteConnectionManager>,
+    data_path: &str,
+) -> Vec<Salary> {
+    let mut reader =
+        Reader::from_path(data_path).unwrap();
     let mut salaries = vec![];
 
     for row in reader.deserialize::<IndianaCompensationRow>() {

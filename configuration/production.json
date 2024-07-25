@@ -1,0 +1,15 @@
+{
+    "port": 8080,
+    "host": "0.0.0.0",
+    "database": {
+        "username": "",
+        "password": "",
+        "database_name": "directory",
+        "connection_type": {
+            "Path": "/app/database/directory" 
+        },
+        "connection_pool": {
+            "max_size": 8
+        }
+    }
+}

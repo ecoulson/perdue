@@ -1,60 +1,116 @@
-use std::sync::Arc;
+use std::{
+    env::current_dir,
+    fs::{read_dir, File},
+    sync::Arc,
+    thread,
+};
 
-use axum::{routing::get, Router};
 use perdue::{
     agriculture::AgricultureScrapper,
     college::{list_students, store_students, College, Office},
+    configuration::read_configuration,
     health::HealthScrapper,
-    html::{NameOrder, ScrapperSelectors},
+    html::ScrapperSelectors,
     liberal_arts::LiberalArtsScrapper,
+    parser::{
+        ChemicalSciencesParser, DefaultRowParser, PharmacyParser,
+        PhysicsAndAstronomyParser, VeterinaryMedicineParser,
+    },
     salary::{process_salaries, store_salaries},
     scrapper::{scrape_college, SinglePageStudentScrapper},
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use tokio::{net::TcpListener, task::JoinSet};
-use tower_http::services::ServeDir;
-use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tiny_http::{Request, Response};
+use tokio::task::JoinSet;
 
 /// INDIANA DATA SOURCE FROM: https://gateway.ifionline.org/report_builder/Default3a.aspx?rptType=employComp&rpt=EmployComp&rptName=Employee%20Compensation&rpt_unit_in=3186&referrer=byunit#P4072bd793c4545f0aa97626e908ace39_5_oHit0
 
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "perdue=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-    let pool_manager = SqliteConnectionManager::file("database/directory");
-    let connection_pool = r2d2::Pool::builder()
-        .max_size(8)
-        .build(pool_manager)
-        .unwrap();
-    info!("Pipeline Start");
-    pipeline(&connection_pool).await;
-    info!("Pipeline Done");
-
-    info!("Server is listening.");
-    let router = Router::new()
-        .route("/", get(list_students))
-        .with_state(connection_pool)
-        .nest_service(
-            "/assets",
-            ServeDir::new(format!(
-                "{}/assets",
-                std::env::current_dir().unwrap().to_str().unwrap()
-            )),
-        );
-    let listener = TcpListener::bind("0.0.0.0:7777").await.unwrap();
-    axum::serve(listener, router).await.unwrap();
+struct ServerState {
+    connection_pool: Pool<SqliteConnectionManager>,
 }
 
-async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
+#[tokio::main]
+async fn main() {
+    let configuration =
+        read_configuration("ENVIRONMENT").unwrap_or_else(|error| panic!("{}", error.to_string()));
+    let pool_manager =
+        SqliteConnectionManager::file(configuration.database.connection_type.as_str());
+    let connection_pool = r2d2::Pool::builder()
+        .max_size(configuration.database.connection_pool.max_size)
+        .build(pool_manager)
+        .unwrap();
+    println!("Server is listening");
+    let server = Arc::new(
+        tiny_http::Server::http(format!("{}:{}", configuration.host, configuration.port)).unwrap(),
+    );
+    let state = Arc::new(ServerState {
+        connection_pool: connection_pool.clone(),
+    });
+    let pipeline_state = state.clone();
+    let mut workers = Vec::with_capacity(4);
+
+    tokio::spawn(async move {
+        println!("Pipeline Start");
+        pipeline(&pipeline_state).await;
+        println!("Pipeline Done");
+    });
+
+    for _ in 0..workers.capacity() {
+        let server = server.clone();
+        let state = state.clone();
+
+        workers.push(thread::spawn(move || loop {
+            match server.recv() {
+                Ok(request) => route(request, &state),
+                Err(error) => {
+                    eprintln!("error: {}", error)
+                }
+            }
+        }));
+    }
+
+    loop {}
+}
+
+fn route(request: Request, state: &Arc<ServerState>) {
+    match request.url() {
+        "/" => request
+            .respond(list_students(&state.connection_pool))
+            .unwrap(),
+        _ if request.url().starts_with("/assets") => {
+            let response = serve_directory(&request, "/assets", "/assets");
+            request.respond(response).unwrap()
+        }
+        _ => println!("Unhandled route {}", request.url()),
+    }
+}
+
+fn serve_directory(request: &Request, url: &str, directory_path: &str) -> Response<File> {
+    let current_dir = current_dir().unwrap().to_str().unwrap().to_string();
+    let resolved_directory_path = format!("{}{}", current_dir, directory_path);
+
+    match read_dir(resolved_directory_path) {
+        Ok(directory) => directory
+            .filter_map(|file| file.ok())
+            .find(|file| {
+                file.path()
+                    .to_str()
+                    .unwrap()
+                    .replace(&current_dir, "")
+                    .replace(&directory_path, "")
+                    == request.url().replace(&url, "")
+            })
+            .map(|file| Response::from_file(File::open(file.path()).unwrap()))
+            .unwrap(),
+        Err(_) => panic!("Can't find file"),
+    }
+}
+
+async fn pipeline(state: &Arc<ServerState>) {
     let client = Arc::new(reqwest::Client::new());
-    connection_pool
+    state
+        .connection_pool
         .get()
         .unwrap()
         .execute(
@@ -68,7 +124,8 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             [],
         )
         .unwrap();
-    connection_pool
+    state
+        .connection_pool
         .get()
         .unwrap()
         .execute(
@@ -78,7 +135,8 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             [],
         )
         .unwrap();
-    connection_pool
+    state
+        .connection_pool
         .get()
         .unwrap()
         .execute(
@@ -92,10 +150,10 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         )
         .unwrap();
 
-    info!("Processing students...");
+    println!("Processing students...");
     let mut scrape_tasks = JoinSet::new();
 
-    info!("Scraping college of agriculture...");
+    println!("Scraping college of agriculture...");
     let agriculture_college = College {
         base_url: String::from(
             "https://ag.purdue.edu/api/pi/2021/api/Directory/ListStaffDirectory",
@@ -108,7 +166,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         base_url: agriculture_college.base_url,
     })));
 
-    info!("Scraping college of education...");
+    println!("Scraping college of education...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -116,26 +174,24 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             default_department: String::from("School of Education"),
             default_office: Office::default(),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![String::from("Graduate Student")],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".grad-directory-archive-container"),
             position_selector: Some(String::from(".position")),
-            name_selector: Some(vec![String::from(".grad-directory-archive-info h2")]),
+            name_selector: Some(vec![String::from(".grad-directory-archive-println h2")]),
             email_selector: Some(String::from(".grad-directory-archive-contact a")),
             department_selector: Some(String::from(".department")),
             location_selector: None,
         },
     })));
 
-    info!("Scraping college of health...");
+    println!("Scraping college of health...");
     scrape_tasks.spawn(scrape_college(HealthScrapper::new(
         "https://hhs.purdue.edu/wp-admin/admin-ajax.php",
         client.clone(),
     )));
 
-    info!("Scraping college of liberal arts...");
+    println!("Scraping college of liberal arts...");
     let liberal_arts_college = College {
         base_url: String::from("https://cla.purdue.edu/directory/"),
         default_office: Office::default(),
@@ -146,7 +202,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         url: liberal_arts_college.base_url,
     })));
 
-    info!("Scraping college of pharmacy...");
+    println!("Scraping college of pharmacy...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -156,9 +212,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             default_department: String::from("School of Pharmacy"),
             default_office: Office::default(),
         },
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
-        order: NameOrder::FirstLast,
+        parser: Box::new(PharmacyParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("table tbody tr"),
             name_selector: Some(vec![String::from("td:nth-child(1)")]),
@@ -169,7 +223,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of biomedical engineering...");
+    println!("Scraping college of biomedical engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -180,9 +234,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Biomedical Engineering"),
         },
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
-        order: NameOrder::FirstLast,
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![
@@ -196,7 +248,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of chemical engineering...");
+    println!("Scraping college of chemical engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -207,9 +259,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Chemical Engineering"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![String::from(".list-name")]),
@@ -220,7 +270,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of engineering education...");
+    println!("Scraping college of engineering education...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -231,9 +281,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Engineering Education"),
         },
-        order: NameOrder::FirstLast,
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![
@@ -247,7 +295,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of environmental and ecological engineering...");
+    println!("Scraping college of environmental and ecological engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -255,9 +303,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             default_office: Office::default(),
             default_department: String::from("School of Environmental and Ecological Engineering"),
         },
-        order: NameOrder::FirstLast,
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![
@@ -271,7 +317,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of industrial engineering...");
+    println!("Scraping college of industrial engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -282,9 +328,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Industrial Engineering"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![
@@ -298,7 +342,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of materials engineering...");
+    println!("Scraping college of materials engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -311,9 +355,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Materials Engineering"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".mse-grad-card"),
             name_selector: Some(vec![String::from("h1")]),
@@ -324,7 +366,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of nuclear engineering...");
+    println!("Scraping college of nuclear engineering...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -335,9 +377,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Nuclear Engineering"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selector: Some(vec![
@@ -351,7 +391,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of biological sciences...");
+    println!("Scraping college of biological sciences...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -362,9 +402,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of Biological Sciences"),
         },
-        order: NameOrder::FirstLast,
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
             name_selector: Some(vec![String::from("h2")]),
@@ -375,7 +413,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of chemical sciences...");
+    println!("Scraping college of chemical sciences...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -386,9 +424,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("Department Of Chemistry"),
         },
-        delimiter: String::from(", "),
-        order: NameOrder::LastFirst,
-        allowed_positions: vec![],
+        parser: Box::new(ChemicalSciencesParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".table tbody tr"),
             name_selector: Some(vec![String::from("td:nth-child(3)")]),
@@ -399,7 +435,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of computer sciences...");
+    println!("Scraping college of computer sciences...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -410,9 +446,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("Department of Computer Science"),
         },
-        order: NameOrder::FirstLast,
-        delimiter: String::from(" "),
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".table tbody tr"),
             name_selector: Some(vec![String::from("td:nth-child(1)")]),
@@ -423,7 +457,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of Earth, Atmospheric, and Planatary Sciences...");
+    println!("Scraping college of Earth, Atmospheric, and Planatary Sciences...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -434,9 +468,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("School of EAPS"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".PhD .peopleDirectoryPerson"),
             name_selector: Some(vec![String::from(".peopleDirectoryInfo strong")]),
@@ -447,7 +479,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of mathematics...");
+    println!("Scraping college of mathematics...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -458,9 +490,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("Department of Mathematics"),
         },
-        delimiter: String::from(" "),
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .directory-row"),
             name_selector: Some(vec![String::from(".peopleDirectoryName a")]),
@@ -471,7 +501,7 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of physics and astronomy...");
+    println!("Scraping college of physics and astronomy...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
@@ -484,35 +514,29 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
             },
             default_department: String::from("Department of Physics and Astronomy"),
         },
-        order: NameOrder::LastFirst,
-        allowed_positions: vec![String::from("Graduate Students")],
-        delimiter: String::from(", "),
+        parser: Box::new(PhysicsAndAstronomyParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".person-item"),
             name_selector: Some(vec![String::from("h2")]),
             department_selector: None,
             email_selector: Some(String::from(".email_link")),
-            location_selector: Some(String::from(".info-box div:nth-child(2) .info")),
+            location_selector: Some(String::from(".println-box div:nth-child(2) .info")),
             position_selector: Some(String::from("a[data-category=\"graduate\"]")),
         },
     })));
 
-    info!("Scraping college of statistics...");
+    println!("Scraping college of statistics...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
-            base_url: String::from(
-                "https://www.stat.purdue.edu/people/graduate_students/",
-            ),
+            base_url: String::from("https://www.stat.purdue.edu/people/graduate_students/"),
             default_office: Office {
                 building: String::from("MATH"),
                 room: String::from(""),
             },
             default_department: String::from("Department of Statistics"),
         },
-        order: NameOrder::FirstLast,
-        allowed_positions: vec![],
-        delimiter: String::from(" "),
+        parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
             name_selector: Some(vec![String::from("div h2")]),
@@ -523,22 +547,18 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
         },
     })));
 
-    info!("Scraping college of veterinary medice...");
+    println!("Scraping college of veterinary medice...");
     scrape_tasks.spawn(scrape_college(Arc::new(SinglePageStudentScrapper {
         client: client.clone(),
         college: College {
-            base_url: String::from(
-                "https://vet.purdue.edu/directory/index.php?classification=20",
-            ),
+            base_url: String::from("https://vet.purdue.edu/directory/index.php?classification=20"),
             default_office: Office {
                 building: String::from(""),
                 room: String::from(""),
             },
             default_department: String::from("Department of Veterinary Medicine"),
         },
-        order: NameOrder::LastFirst,
-        allowed_positions: vec![],
-        delimiter: String::from(", "),
+        parser: Box::new(VeterinaryMedicineParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".profile-entry"),
             name_selector: Some(vec![String::from("div:nth-child(1) a")]),
@@ -550,16 +570,16 @@ async fn pipeline(connection_pool: &Pool<SqliteConnectionManager>) {
     })));
 
     while let Some(Ok(Ok(scraped_students_by_page))) = scrape_tasks.join_next().await {
-        info!("Storing students...");
+        println!("Storing students...");
         for page in scraped_students_by_page {
-            store_students(&page, &connection_pool);
+            store_students(&page, &state.connection_pool);
         }
     }
 
-    info!("Done storing students...");
-    info!("Done processing students...");
-    info!("Processing salaries...");
-    let salaries = process_salaries(connection_pool);
-    store_salaries(&salaries, connection_pool);
-    info!("Done processing salaries...");
+    println!("Done storing students...");
+    println!("Done processing students...");
+    println!("Processing salaries...");
+    let salaries = process_salaries(&state.connection_pool, "data/salaries_2023.csv");
+    store_salaries(&salaries, &state.connection_pool);
+    println!("Done processing salaries...");
 }

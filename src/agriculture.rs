@@ -1,13 +1,13 @@
 use std::{future::Future, sync::Arc};
 
-use anyhow::{Error, Result};
+use anyhow::{anyhow, Error, Result};
 use futures::TryFutureExt;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     college::{GraduateStudent, Office},
-    scrapper::{PagedRequest, PagedResponse, StudentScrapper},
+    scrapper::{PagedRequest, PagedResponse, ScrapeResult, ScrapperError, StudentScrapper},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,7 +47,7 @@ struct AgricultureGraduateStudent {
     #[serde(rename = "DepartmentList")]
     departments: Option<Vec<DepartmentResponse>>,
     #[serde(rename = "stralias")]
-    id: String,
+    id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,6 +56,7 @@ struct DepartmentResponse {
     department: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct AgricultureScrapper {
     pub http_client: Arc<Client>,
     pub base_url: String,
@@ -83,22 +84,25 @@ impl PagedRequest for ListAgricultureStaffDirectoryRequest {
 }
 
 impl PagedResponse for ListAgricultureStaffDirectoryResponse {
-    fn total_pages(&self) -> usize {
-        self.total_pages.unwrap().into()
+    fn total_pages(&self) -> Result<usize> {
+        match self.total_pages {
+            Some(size) => Ok(size.into()),
+            None => Err(anyhow!("Total pages not included in response")),
+        }
     }
 }
 
 impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffDirectoryResponse>
     for AgricultureScrapper
 {
-    fn parse(
+    fn deserialize(
         &self,
         response: Response,
     ) -> impl Future<Output = Result<Box<ListAgricultureStaffDirectoryResponse>>> {
         response.json().map_err(Error::from)
     }
 
-    fn scrape(
+    fn fetch(
         &self,
         request: ListAgricultureStaffDirectoryRequest,
     ) -> impl Future<Output = Result<Response>> {
@@ -110,28 +114,48 @@ impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffD
             .map_err(Error::from)
     }
 
-    async fn scrape_students(
+    async fn scrape(
         &self,
         response: ListAgricultureStaffDirectoryResponse,
-    ) -> Vec<GraduateStudent> {
-        response
-            .students
-            .unwrap()
+    ) -> Result<Vec<ScrapeResult>> {
+        let Some(students) = response.students else {
+            return Err(anyhow!("No students were found"));
+        };
+
+        Ok(students
             .into_iter()
             .map(|student| {
                 let mut department = String::new();
                 let mut names = vec![];
 
-                if let Some(first_name) = student.first_name {
-                    names.push(first_name);
+                if student.id.is_none() && student.email.is_none() {
+                    return ScrapeResult::Error(ScrapperError {
+                        message: format!("No id found in student {:?}", student),
+                    });
                 }
 
-                if let Some(middle_name) = student.middle_name {
-                    names.push(middle_name);
+                let id = match student.id {
+                    None => student
+                        .email
+                        .as_ref()
+                        .unwrap()
+                        .split("@")
+                        .next()
+                        .unwrap()
+                        .to_lowercase(),
+                    Some(id) => id,
+                };
+
+                if let Some(first_name) = student.first_name {
+                    names.append(&mut first_name.split(" ").map(String::from).collect::<Vec<_>>());
+                }
+
+                if let Some(middle_name) = &student.middle_name {
+                    names.append(&mut middle_name.split(" ").map(String::from).collect::<Vec<_>>());
                 }
 
                 if let Some(last_name) = student.last_name {
-                    names.push(last_name);
+                    names.append(&mut last_name.split(" ").map(String::from).collect::<Vec<_>>());
                 }
 
                 if let Some(departments) = student.departments {
@@ -140,8 +164,8 @@ impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffD
                     }
                 }
 
-                GraduateStudent {
-                    id: student.id,
+                ScrapeResult::Success(GraduateStudent {
+                    id,
                     names,
                     email: student.email.unwrap_or(String::new()),
                     department,
@@ -149,8 +173,8 @@ impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffD
                         room: student.room.unwrap_or(String::new()),
                         building: student.building.unwrap_or(String::new()),
                     },
-                }
+                })
             })
-            .collect()
+            .collect())
     }
 }

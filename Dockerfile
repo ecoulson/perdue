@@ -1,37 +1,23 @@
-FROM ubuntu/latest
-RUN apt-get install ca-certificates \
-fonts-liberation \
-libasound2 \
-libatk-bridge2.0-0 \
-libatk1.0-0 \
-libc6 \
-libcairo2 \
-libcups2 \
-libdbus-1-3 \
-libexpat1 \
-libfontconfig1 \
-libgbm1 \
-libgcc1 \
-libglib2.0-0 \
-libgtk-3-0 \
-libnspr4 \
-libnss3 \
-libpango-1.0-0 \
-libpangocairo-1.0-0 \
-libstdc++6 \
-libx11-6 \
-libx11-xcb1 \
-libxcb1 \
-libxcomposite1 \
-libxcursor1 \
-libxdamage1 \
-libxext6 \
-libxfixes3 \
-libxi6 \
-libxrandr2 \
-libxrender1 \
-libxss1 \
-libxtst6 \
-lsb-release \
-wget \
-xdg-utils 
+FROM clux/muslrust:stable AS chef
+RUN cargo install cargo-chef
+WORKDIR /app
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder 
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+COPY . .
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin perdue
+
+FROM alpine:3.19 AS runtime
+WORKDIR /app
+RUN apk add sqlite ca-certificates && mkdir database/
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/perdue perdue
+COPY configuration configuration
+COPY data data
+COPY assets assets
+ENV ENVIRONMENT=production
+ENTRYPOINT ["./perdue"]

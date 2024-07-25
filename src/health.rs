@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Error, Result};
+use anyhow::{anyhow, Error, Result};
 use futures::{prelude::Future, TryFutureExt};
 use reqwest::{Client, Response};
 use scraper::{Html, Selector};
@@ -9,10 +9,9 @@ use tokio::task::JoinSet;
 
 use crate::{
     college::{GraduateStudent, Office},
-    html::{
-        extract_id_from_email, parse_email, parse_names, scrape_html, NameOrder, ScrapperSelectors,
-    },
-    scrapper::{PagedRequest, PagedResponse, StudentScrapper},
+    html::{scrape_html, ScrapperSelectors},
+    parser::{HtmlRowParser, LastNameFirstParser},
+    scrapper::{PagedRequest, PagedResponse, ScrapeResult, StudentScrapper},
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -83,24 +82,23 @@ impl PagedRequest for HealthScrapperRequest {
 }
 
 impl PagedResponse for HealthScrapperResponse {
-    fn total_pages(&self) -> usize {
-        if let Some(response) = &self.meta {
-            return response.total_posts / response.post_count;
+    fn total_pages(&self) -> Result<usize> {
+        match &self.meta {
+            Some(response) => Ok(response.total_posts / response.post_count),
+            None => Err(anyhow!("Metadata not included in response")),
         }
-
-        0
     }
 }
 
 impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthScrapper {
-    fn parse(
+    fn deserialize(
         &self,
         response: Response,
     ) -> impl Future<Output = Result<Box<HealthScrapperResponse>>> + Send {
         response.json().map_err(Error::from)
     }
 
-    fn scrape(
+    fn fetch(
         &self,
         request: HealthScrapperRequest,
     ) -> impl Future<Output = Result<Response>> + Send {
@@ -111,12 +109,13 @@ impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthSc
             .map_err(Error::from)
     }
 
-    async fn scrape_students(&self, response: HealthScrapperResponse) -> Vec<GraduateStudent> {
+    async fn scrape(&self, response: HealthScrapperResponse) -> Result<Vec<ScrapeResult>> {
         let html = format!("<table>{}</table>", &response.html.as_ref().unwrap());
         let mut student_page_requests = JoinSet::new();
         let mut student_page_serializations = JoinSet::new();
         let mut students = vec![];
         let email_selector = Selector::parse(".email a").unwrap();
+        let parser = LastNameFirstParser {};
 
         scrape_html(
             &ScrapperSelectors {
@@ -131,11 +130,7 @@ impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthSc
         )
         .iter()
         .map(|row| {
-            let names = parse_names(
-                row.name_elements.as_ref().unwrap(),
-                &NameOrder::LastFirst,
-                ", ",
-            );
+            let names = parser.parse_names(&row.name_elements);
 
             (
                 row.name_elements
@@ -176,13 +171,13 @@ impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthSc
             let email_element = document.select(&email_selector).next();
 
             if let Some(email_element) = email_element {
-                student.email = parse_email(&email_element).unwrap();
-                student.id = extract_id_from_email(&student.email);
-                students.push(student);
+                student.email = parser.parse_email(&Some(email_element)).unwrap();
+                student.id = parser.parse_id(&Some(email_element)).unwrap();
+                students.push(ScrapeResult::Success(student));
             }
         }
 
-        students
+        Ok(students)
     }
 }
 

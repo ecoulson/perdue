@@ -3,15 +3,12 @@ use std::sync::Arc;
 use anyhow::{Error, Result};
 use futures::{prelude::Future, TryFutureExt};
 use reqwest::{Client, Response};
-use scraper::Html;
+use scraper::{ElementRef, Html};
 
 use crate::{
-    college::{GraduateStudent, Office},
-    html::{
-        extract_id_from_email, parse_email, parse_names, parse_office, parse_positions,
-        scrape_html, NameOrder, ScrapperSelectors,
-    },
-    scrapper::StudentScrapper,
+    html::{scrape_html, ScrapperSelectors},
+    parser::HtmlRowParser,
+    scrapper::{ScrapeResult, StudentScrapper},
 };
 
 pub struct LiberalArtsScrapper {
@@ -19,9 +16,39 @@ pub struct LiberalArtsScrapper {
     pub url: String,
 }
 
+struct LiberalArtsParser {}
+
+impl HtmlRowParser for LiberalArtsParser {
+    fn is_valid_position(&self, element: &Option<ElementRef<'_>>) -> bool {
+        let Some(positions) = self.parse_positions(element) else {
+            return false;
+        };
+
+        return positions.contains(&String::from("Graduate Student"));
+    }
+
+    fn parse_positions(&self, element: &Option<ElementRef<'_>>) -> Option<Vec<String>> {
+        let Some(element) = element else {
+            return None;
+        };
+
+        element.text().next().and_then(|position_text| {
+            Some(
+                position_text
+                    .trim()
+                    .split(" // ")
+                    .map(String::from)
+                    .collect(),
+            )
+        })
+    }
+}
+
 impl StudentScrapper<(), String> for LiberalArtsScrapper {
-    async fn scrape_students(&self, response: String) -> Vec<GraduateStudent> {
-        scrape_html(
+    async fn scrape(&self, response: String) -> Result<Vec<ScrapeResult>> {
+        let parser = LiberalArtsParser {};
+
+        Ok(scrape_html(
             &ScrapperSelectors {
                 directory_row_selector: String::from(".profile-row"),
                 position_selector: Some(String::from("td:nth-child(2)")),
@@ -34,45 +61,34 @@ impl StudentScrapper<(), String> for LiberalArtsScrapper {
         )
         .iter()
         .filter_map(|row| {
-            let names = parse_names(
-                row.name_elements.as_ref().unwrap(),
-                &NameOrder::FirstLast,
-                " ",
-            );
-            let email = parse_email(&row.email_element.unwrap()).unwrap();
-            let position = parse_positions(&row.position_element.unwrap());
-
-            if !position.contains(&String::from("Graduate Student")) {
+            let Some(mut student) = parser.parse_row(row) else {
                 return None;
-            }
+            };
+            let Some(positions) = parser.parse_positions(&row.position_element) else {
+                return None;
+            };
+            student.department = positions
+                .into_iter()
+                .find(|position| {
+                    position != "Graduate Student"
+                        && position != "SIS"
+                        && position != "SLC"
+                        && position != "Rueff School"
+                        && position != "SLC Teaching Assistant"
+                        && position != "Teaching Assistant"
+                })
+                .unwrap_or_else(|| String::new());
 
-            Some(GraduateStudent {
-                department: position
-                    .into_iter()
-                    .find(|position| {
-                        position != "Graduate Student"
-                            && position != "SIS"
-                            && position != "SLC"
-                            && position != "Rueff School"
-                            && position != "SLC Teaching Assistant"
-                            && position != "Teaching Assistant"
-                    })
-                    .unwrap_or_else(|| String::new()),
-                id: extract_id_from_email(&email),
-                email,
-                names,
-                office: parse_office(&row.location_element.unwrap())
-                    .unwrap_or_else(|| Office::default()),
-            })
+            Some(ScrapeResult::Success(student))
         })
-        .collect()
+        .collect())
     }
 
-    fn scrape(&self, _: ()) -> impl Future<Output = Result<Response>> + Send {
+    fn fetch(&self, _: ()) -> impl Future<Output = Result<Response>> + Send {
         self.client.get(&self.url).send().map_err(Error::from)
     }
 
-    fn parse(&self, response: Response) -> impl Future<Output = Result<Box<String>>> + Send {
+    fn deserialize(&self, response: Response) -> impl Future<Output = Result<Box<String>>> + Send {
         response
             .text()
             .map_err(Error::from)
