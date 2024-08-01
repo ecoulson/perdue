@@ -1,16 +1,17 @@
 use std::{collections::LinkedList, io::Cursor, str::FromStr, sync::Arc};
 
 use perdue::{
-    agriculture::AgricultureScrapper,
+    agriculture::AgricultureScraper,
     college::{GraduateStudent, Office},
-    scrapper::{scrape_college, ScrapeResult, ScrapperError},
+    error::Status,
+    scraper::scrape_college,
 };
 use pretty_assertions::assert_eq;
 use reqwest::Client;
 use tiny_http::{Header, Response, Server};
 use tokio::test;
 
-pub fn create_test_server(responses: Vec<Response<Cursor<Vec<u8>>>>) -> Arc<Server> {
+fn create_test_server(responses: Vec<Response<Cursor<Vec<u8>>>>) -> Arc<Server> {
     let server = Arc::new(Server::http("0.0.0.0:0").unwrap());
     let mut responses = LinkedList::from_iter(responses.into_iter());
     let request_server = server.clone();
@@ -29,6 +30,15 @@ pub fn create_test_server(responses: Vec<Response<Cursor<Vec<u8>>>>) -> Arc<Serv
     });
 
     server
+}
+
+async fn invoke_scrape_college(scraper: AgricultureScraper) -> Vec<Vec<GraduateStudent>> {
+    scrape_college(Arc::new(scraper))
+        .await
+        .expect("Should parse students")
+        .into_iter()
+        .map(|x| x.into_iter().map(|y| y.unwrap()).collect())
+        .collect()
 }
 
 #[test]
@@ -155,12 +165,12 @@ async fn scrape_agriculture_test_single_page() {
         }"#;
     let server = create_test_server(vec![Response::from_string(response)
         .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
     let expected_results = vec![vec![
-        ScrapeResult::Success(GraduateStudent {
+        GraduateStudent {
             id: String::from("aaarstad"),
             email: String::from("aaarstad@purdue.edu"),
             department: String::from("Agricultural Economics"),
@@ -173,8 +183,8 @@ async fn scrape_agriculture_test_single_page() {
                 building: String::from("KRAN"),
                 room: String::from(""),
             },
-        }),
-        ScrapeResult::Success(GraduateStudent {
+        },
+        GraduateStudent {
             id: String::from("abdelhas"),
             email: String::from("maha@purdue.edu"),
             department: String::from("Animal Sciences"),
@@ -188,12 +198,10 @@ async fn scrape_agriculture_test_single_page() {
                 building: String::from("CRTN"),
                 room: String::from("2088"),
             },
-        }),
+        },
     ]];
 
-    let results = scrape_college(Arc::new(scraper))
-        .await
-        .expect("Should parse students");
+    let results = invoke_scrape_college(scraper).await;
 
     assert_eq!(results, expected_results);
 }
@@ -350,12 +358,12 @@ async fn scrape_agriculture_test_multiple_pages() {
         Response::from_string(page_2)
             .with_header(Header::from_str("Content-Type: application/json").unwrap()),
     ]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
     let expected_results = vec![
-        vec![ScrapeResult::Success(GraduateStudent {
+        vec![GraduateStudent {
             id: String::from("aaarstad"),
             email: String::from("aaarstad@purdue.edu"),
             department: String::from("Agricultural Economics"),
@@ -368,8 +376,8 @@ async fn scrape_agriculture_test_multiple_pages() {
                 building: String::from("KRAN"),
                 room: String::from(""),
             },
-        })],
-        vec![ScrapeResult::Success(GraduateStudent {
+        }],
+        vec![GraduateStudent {
             id: String::from("abdelhas"),
             email: String::from("maha@purdue.edu"),
             department: String::from("Animal Sciences"),
@@ -383,12 +391,10 @@ async fn scrape_agriculture_test_multiple_pages() {
                 building: String::from("CRTN"),
                 room: String::from("2088"),
             },
-        })],
+        }],
     ];
 
-    let results = scrape_college(Arc::new(scraper))
-        .await
-        .expect("Should parse students");
+    let results = invoke_scrape_college(scraper).await;
 
     assert_eq!(results, expected_results);
 }
@@ -468,11 +474,11 @@ async fn scrape_agriculture_page_no_id() {
     }"#;
     let server = create_test_server(vec![Response::from_string(page_1)
         .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
-    let expected_students = vec![vec![ScrapeResult::Success(GraduateStudent {
+    let expected_students = vec![vec![GraduateStudent {
         id: String::from("aaarstad"),
         email: String::from("aaarstad@purdue.edu"),
         department: String::from("Agricultural Economics"),
@@ -485,11 +491,9 @@ async fn scrape_agriculture_page_no_id() {
             building: String::from("KRAN"),
             room: String::from(""),
         },
-    })]];
+    }]];
 
-    let students = scrape_college(Arc::new(scraper))
-        .await
-        .expect("Should parse students");
+    let students = invoke_scrape_college(scraper).await;
 
     assert_eq!(students, expected_students);
 }
@@ -568,16 +572,16 @@ async fn scrape_agriculture_page_no_id_or_email() {
     }"#;
     let server = create_test_server(vec![Response::from_string(page_1)
         .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
 
     let students = scrape_college(Arc::new(scraper))
         .await
-        .expect("Should parse students");
+        .expect("Should fail due to empty body");
 
-    assert!(matches!(students[0][0], ScrapeResult::Error(_)));
+    assert!(matches!(students[0][0], Err(_)));
 }
 
 #[test]
@@ -607,14 +611,12 @@ async fn scrape_agriculture_page_no_students() {
     }"#;
     let server = create_test_server(vec![Response::from_string(page_1)
         .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
 
-    let students = scrape_college(Arc::new(scraper))
-        .await
-        .expect("Should parse students");
+    let students = invoke_scrape_college(scraper).await;
 
     assert!(students.is_empty());
 }
@@ -624,14 +626,28 @@ async fn scrape_agriculture_page_empty_json() {
     let page_1 = r#"{}"#;
     let server = create_test_server(vec![Response::from_string(page_1)
         .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
-    let scraper = AgricultureScrapper {
+    let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
         base_url: format!("http://{}", server.server_addr().to_string()),
     };
 
-    let results = scrape_college(Arc::new(scraper))
-        .await
-        .expect("Should parse error");
+    let error = scrape_college(Arc::new(scraper)).await;
 
-    assert!(matches!(results[0][0], ScrapeResult::Error(_)));
+    assert!(matches!(error, Err(Status::NotFound(_))));
+}
+
+#[test]
+async fn scrape_agriculture_with_error() {
+    let server = create_test_server(vec![Response::from_string("{}")
+        .with_status_code(500)
+        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let scraper = AgricultureScraper {
+        http_client: Arc::new(Client::new()),
+        base_url: format!("http://{}", server.server_addr().to_string()),
+    };
+
+    let error = scrape_college(Arc::new(scraper)).await;
+    dbg!(&error);
+
+    assert!(matches!(error, Err(Status::Internal(_))));
 }

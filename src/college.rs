@@ -7,7 +7,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Response};
 
-use crate::scrapper::ScrapeResult;
+use crate::error::Status;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct Office {
@@ -140,14 +140,14 @@ pub fn get_student_by_name(
 }
 
 pub fn store_students(
-    students: &Vec<ScrapeResult>,
+    students: &Vec<Result<GraduateStudent, Status>>,
     connection_pool: &Pool<SqliteConnectionManager>,
 ) {
     for students_chunk in students.chunks(50) {
         let query = students_chunk
             .iter()
             .filter_map(|student| match student {
-                ScrapeResult::Success(student) => Some(format!(
+                Ok(student) => Some(format!(
                     "SELECT '{}' AS Id, '{}' AS Name,
                       '{}' AS Email, '{}' AS Department,
                       '{}' AS Office\n",
@@ -157,8 +157,8 @@ pub fn store_students(
                     student.department,
                     serde_json::to_string(&student.office).unwrap()
                 )),
-                ScrapeResult::Error(error) => {
-                    eprintln!("{}", error.message);
+                Err(error) => {
+                    eprintln!("{}", error);
                     None
                 }
             })

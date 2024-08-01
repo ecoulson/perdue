@@ -6,9 +6,11 @@ use reqwest::{Client, Response};
 use scraper::{ElementRef, Html};
 
 use crate::{
+    college::GraduateStudent,
+    error::Status,
     html::{scrape_html, ScrapperSelectors},
     parser::HtmlRowParser,
-    scrapper::{ScrapeResult, StudentScrapper},
+    scraper::StudentScraper,
 };
 
 pub struct LiberalArtsScrapper {
@@ -24,7 +26,7 @@ impl HtmlRowParser for LiberalArtsParser {
             return false;
         };
 
-        return positions.contains(&String::from("Graduate Student"));
+        positions.contains(&String::from("Graduate Student"))
     }
 
     fn parse_positions(&self, element: &Option<ElementRef<'_>>) -> Option<Vec<String>> {
@@ -44,21 +46,24 @@ impl HtmlRowParser for LiberalArtsParser {
     }
 }
 
-impl StudentScrapper<(), String> for LiberalArtsScrapper {
-    async fn scrape(&self, response: String) -> Result<Vec<ScrapeResult>> {
+impl StudentScraper<(), String> for LiberalArtsScrapper {
+    async fn scrape(
+        &self,
+        response: String,
+    ) -> Result<Vec<Result<GraduateStudent, Status>>, Status> {
         let parser = LiberalArtsParser {};
 
         Ok(scrape_html(
             &ScrapperSelectors {
                 directory_row_selector: String::from(".profile-row"),
                 position_selector: Some(String::from("td:nth-child(2)")),
-                name_selector: Some(vec![String::from("td:nth-child(1) a")]),
+                name_selectors: vec![String::from("td:nth-child(1) a")],
                 email_selector: Some(String::from("td:nth-child(4)")),
                 location_selector: Some(String::from("td:nth-child(5)")),
                 department_selector: None,
             },
             &Html::parse_document(&response),
-        )
+        )?
         .iter()
         .filter_map(|row| {
             let Some(mut student) = parser.parse_row(row) else {
@@ -79,19 +84,25 @@ impl StudentScrapper<(), String> for LiberalArtsScrapper {
                 })
                 .unwrap_or_else(|| String::new());
 
-            Some(ScrapeResult::Success(student))
+            Some(Ok(student))
         })
         .collect())
     }
 
-    fn fetch(&self, _: ()) -> impl Future<Output = Result<Response>> + Send {
-        self.client.get(&self.url).send().map_err(Error::from)
+    fn fetch(&self, _: ()) -> impl Future<Output = Result<Response, Status>> + Send {
+        self.client
+            .get(&self.url)
+            .send()
+            .map_err(|error| Status::InvalidArgument(Error::from(error)))
     }
 
-    fn deserialize(&self, response: Response) -> impl Future<Output = Result<Box<String>>> + Send {
+    fn deserialize(
+        &self,
+        response: Response,
+    ) -> impl Future<Output = Result<Box<String>, Status>> + Send {
         response
             .text()
-            .map_err(Error::from)
+            .map_err(|error| Status::InvalidArgument(Error::from(error)))
             .map_ok(|html| Box::new(html))
     }
 }

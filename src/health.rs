@@ -2,16 +2,17 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Error, Result};
 use futures::{prelude::Future, TryFutureExt};
-use reqwest::{Client, Response};
+use reqwest::{Client, Response, StatusCode};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
 use crate::{
     college::{GraduateStudent, Office},
+    error::Status,
     html::{scrape_html, ScrapperSelectors},
     parser::{HtmlRowParser, LastNameFirstParser},
-    scrapper::{PagedRequest, PagedResponse, ScrapeResult, StudentScrapper},
+    scraper::{PagedRequest, PagedResponse, StudentScraper},
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -82,35 +83,50 @@ impl PagedRequest for HealthScrapperRequest {
 }
 
 impl PagedResponse for HealthScrapperResponse {
-    fn total_pages(&self) -> Result<usize> {
+    fn total_pages(&self) -> Result<usize, Status> {
         match &self.meta {
             Some(response) => Ok(response.total_posts / response.post_count),
-            None => Err(anyhow!("Metadata not included in response")),
+            None => Err(Status::NotFound(anyhow!(
+                "Metadata not included in response"
+            ))),
         }
     }
 }
 
-impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthScrapper {
-    fn deserialize(
-        &self,
-        response: Response,
-    ) -> impl Future<Output = Result<Box<HealthScrapperResponse>>> + Send {
-        response.json().map_err(Error::from)
+impl StudentScraper<HealthScrapperRequest, HealthScrapperResponse> for HealthScrapper {
+    async fn deserialize(&self, response: Response) -> Result<Box<HealthScrapperResponse>, Status> {
+        if response.status() != StatusCode::OK {
+            return Err(Status::Internal(anyhow!(
+                "Failed to make request for page {}",
+                response.url()
+            )));
+        }
+
+        response
+            .json()
+            .map_err(|error| Status::InvalidArgument(Error::from(error)))
+            .await
     }
 
     fn fetch(
         &self,
         request: HealthScrapperRequest,
-    ) -> impl Future<Output = Result<Response>> + Send {
+    ) -> impl Future<Output = Result<Response, Status>> + Send {
         let query_string = serde_qs::to_string(&request).unwrap();
         self.client
             .get(&format!("{}?{}", self.url, query_string))
             .send()
-            .map_err(Error::from)
+            .map_err(|error| Status::InvalidArgument(Error::from(error)))
     }
 
-    async fn scrape(&self, response: HealthScrapperResponse) -> Result<Vec<ScrapeResult>> {
-        let html = format!("<table>{}</table>", &response.html.as_ref().unwrap());
+    async fn scrape(
+        &self,
+        response: HealthScrapperResponse,
+    ) -> Result<Vec<Result<GraduateStudent, Status>>, Status> {
+        let Some(html) = response.html else {
+            return Err(Status::NotFound(anyhow!("HTML not found on response")));
+        };
+        let table = format!("<table>{}</table>", html);
         let mut student_page_requests = JoinSet::new();
         let mut student_page_serializations = JoinSet::new();
         let mut students = vec![];
@@ -120,61 +136,92 @@ impl StudentScrapper<HealthScrapperRequest, HealthScrapperResponse> for HealthSc
         scrape_html(
             &ScrapperSelectors {
                 directory_row_selector: String::from(".faculty-table--row"),
-                name_selector: Some(vec![String::from(".faculty-table--name a")]),
+                name_selectors: vec![String::from(".faculty-table--name a")],
                 position_selector: Some(String::from(".faculty-table--title")),
                 department_selector: Some(String::from(".faculty-table--department")),
                 email_selector: None,
                 location_selector: None,
             },
-            &Html::parse_document(&html),
-        )
+            &Html::parse_fragment(&table),
+        )?
         .iter()
         .map(|row| {
+            let Some(name_link) = &row.name_elements.first() else {
+                return Err(Status::NotFound(anyhow!("Name link element not found")));
+            };
+            let Some(name_url) = name_link.attr("href") else {
+                return Err(Status::NotFound(anyhow!("Name url not found in href")));
+            };
+            let Some(department_element) = row.department_element else {
+                return Err(Status::NotFound(anyhow!("Department element not found")));
+            };
             let names = parser.parse_names(&row.name_elements);
 
-            (
-                row.name_elements
-                    .as_ref()
-                    .unwrap()
-                    .first()
-                    .unwrap()
-                    .attr("href")
-                    .unwrap()
-                    .to_string(),
+            if names.is_empty() {
+                return Err(Status::NotFound(anyhow!("No names found")));
+            }
+
+            Ok((
+                name_url.to_string(),
                 GraduateStudent {
-                    department: row
-                        .department_element
-                        .unwrap()
+                    names,
+                    department: department_element
                         .text()
                         .map(|department| department.trim())
                         .collect(),
                     email: String::new(),
-                    names,
                     id: String::new(),
                     office: Office::default(),
                 },
-            )
+            ))
         })
-        .for_each(|(url, student)| {
-            let client = self.client.clone();
-            student_page_requests.spawn(async move { (student, client.get(url).send().await) });
+        .for_each(|row_result| match row_result {
+            Ok((url, student)) => {
+                let client = self.client.clone();
+                student_page_requests.spawn(async move { (student, client.get(url).send().await) });
+            }
+            Err(error) => students.push(Err(error)),
         });
 
         while let Some(Ok((student, Ok(response)))) = student_page_requests.join_next().await {
+            if response.status() != StatusCode::OK {
+                students.push(Err(Status::Internal(anyhow!(
+                    "Failed to make request for student {:?}",
+                    student
+                ))));
+                continue;
+            }
+
             student_page_serializations.spawn(async move { (student, response.text().await) });
         }
 
         while let Some(Ok((mut student, Ok(student_page)))) =
             student_page_serializations.join_next().await
         {
-            let document = Html::parse_document(&student_page);
-            let email_element = document.select(&email_selector).next();
-
-            if let Some(email_element) = email_element {
-                student.email = parser.parse_email(&Some(email_element)).unwrap();
-                student.id = parser.parse_id(&Some(email_element)).unwrap();
-                students.push(ScrapeResult::Success(student));
-            }
+            match Html::parse_document(&student_page)
+                .select(&email_selector)
+                .next()
+            {
+                Some(email_element) => {
+                    let Some(email) = parser.parse_email(&Some(email_element)) else {
+                        students.push(Err(Status::InvalidArgument(anyhow!("Invalid email"))));
+                        continue;
+                    };
+                    let Some(id) = email
+                        .trim()
+                        .split("@")
+                        .next()
+                        .and_then(|id| Some(id.to_lowercase()))
+                    else {
+                        students.push(Err(Status::InvalidArgument(anyhow!("Invalid id in email"))));
+                        continue;
+                    };
+                    student.email = email;
+                    student.id = id;
+                    students.push(Ok(student));
+                }
+                None => students.push(Err(Status::NotFound(anyhow!("Email element not found")))),
+            };
         }
 
         Ok(students)

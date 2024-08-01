@@ -1,13 +1,14 @@
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Error, Result};
 use futures::TryFutureExt;
-use reqwest::{Client, Response};
+use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     college::{GraduateStudent, Office},
-    scrapper::{PagedRequest, PagedResponse, ScrapeResult, ScrapperError, StudentScrapper},
+    error::Status,
+    scraper::{PagedRequest, PagedResponse, StudentScraper},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -57,7 +58,7 @@ struct DepartmentResponse {
 }
 
 #[derive(Debug)]
-pub struct AgricultureScrapper {
+pub struct AgricultureScraper {
     pub http_client: Arc<Client>,
     pub base_url: String,
 }
@@ -79,59 +80,67 @@ impl PagedRequest for ListAgricultureStaffDirectoryRequest {
     }
 
     fn current_page(&self) -> usize {
-        self.current_page_number
+        self.current_page_number - 1
     }
 }
 
 impl PagedResponse for ListAgricultureStaffDirectoryResponse {
-    fn total_pages(&self) -> Result<usize> {
+    fn total_pages(&self) -> Result<usize, Status> {
         match self.total_pages {
             Some(size) => Ok(size.into()),
-            None => Err(anyhow!("Total pages not included in response")),
+            None => Err(Status::NotFound(anyhow!(
+                "No total pages found on response",
+            ))),
         }
     }
 }
 
-impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffDirectoryResponse>
-    for AgricultureScrapper
+impl StudentScraper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffDirectoryResponse>
+    for AgricultureScraper
 {
-    fn deserialize(
+    async fn deserialize(
         &self,
         response: Response,
-    ) -> impl Future<Output = Result<Box<ListAgricultureStaffDirectoryResponse>>> {
-        response.json().map_err(Error::from)
+    ) -> Result<Box<ListAgricultureStaffDirectoryResponse>, Status> {
+        if response.status() != StatusCode::OK {
+            return Err(Status::Internal(anyhow!(response.status())));
+        }
+
+        response
+            .json()
+            .map_err(|error| Status::InvalidArgument(Error::from(error)))
+            .await
     }
 
-    fn fetch(
+    async fn fetch(
         &self,
         request: ListAgricultureStaffDirectoryRequest,
-    ) -> impl Future<Output = Result<Response>> {
+    ) -> Result<Response, Status> {
         self.http_client
             .post(&self.base_url)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(serde_qs::to_string(&request).unwrap())
             .send()
-            .map_err(Error::from)
+            .map_err(|error| Status::NotFound(Error::from(error)))
+            .await
     }
 
     async fn scrape(
         &self,
         response: ListAgricultureStaffDirectoryResponse,
-    ) -> Result<Vec<ScrapeResult>> {
+    ) -> Result<Vec<Result<GraduateStudent, Status>>, Status> {
         let Some(students) = response.students else {
-            return Err(anyhow!("No students were found"));
+            return Err(Status::NotFound(anyhow!("No students were found")));
         };
 
         Ok(students
             .into_iter()
-            .map(|student| {
+            .filter_map(|student| {
                 let mut department = String::new();
                 let mut names = vec![];
 
                 if student.id.is_none() && student.email.is_none() {
-                    return ScrapeResult::Error(ScrapperError {
-                        message: format!("No id found in student {:?}", student),
-                    });
+                    return Some(Err(Status::NotFound(anyhow!("No id or email was found"))));
                 }
 
                 let id = match student.id {
@@ -164,7 +173,7 @@ impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffD
                     }
                 }
 
-                ScrapeResult::Success(GraduateStudent {
+                Some(Ok(GraduateStudent {
                     id,
                     names,
                     email: student.email.unwrap_or(String::new()),
@@ -173,7 +182,7 @@ impl StudentScrapper<ListAgricultureStaffDirectoryRequest, ListAgricultureStaffD
                         room: student.room.unwrap_or(String::new()),
                         building: student.building.unwrap_or(String::new()),
                     },
-                })
+                }))
             })
             .collect())
     }

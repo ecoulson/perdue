@@ -6,18 +6,18 @@ use std::{
 };
 
 use perdue::{
-    agriculture::AgricultureScrapper,
+    agriculture::AgricultureScraper,
     college::{list_students, store_students, College, Office},
     configuration::read_configuration,
     health::HealthScrapper,
     html::ScrapperSelectors,
     liberal_arts::LiberalArtsScrapper,
     parser::{
-        ChemicalSciencesParser, DefaultRowParser, PharmacyParser,
-        PhysicsAndAstronomyParser, VeterinaryMedicineParser,
+        ChemicalSciencesParser, DefaultRowParser, PharmacyParser, PhysicsAndAstronomyParser,
+        VeterinaryMedicineParser,
     },
     salary::{process_salaries, store_salaries},
-    scrapper::{scrape_college, SinglePageStudentScrapper},
+    scraper::{scrape_college, SinglePageStudentScrapper},
 };
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -161,7 +161,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         default_department: String::from("School of Agriculture"),
         default_office: Office::default(),
     };
-    scrape_tasks.spawn(scrape_college(Arc::new(AgricultureScrapper {
+    scrape_tasks.spawn(scrape_college(Arc::new(AgricultureScraper {
         http_client: client.clone(),
         base_url: agriculture_college.base_url,
     })));
@@ -178,7 +178,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".grad-directory-archive-container"),
             position_selector: Some(String::from(".position")),
-            name_selector: Some(vec![String::from(".grad-directory-archive-println h2")]),
+            name_selectors: vec![String::from(".grad-directory-archive-println h2")],
             email_selector: Some(String::from(".grad-directory-archive-contact a")),
             department_selector: Some(String::from(".department")),
             location_selector: None,
@@ -215,7 +215,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(PharmacyParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("table tbody tr"),
-            name_selector: Some(vec![String::from("td:nth-child(1)")]),
+            name_selectors: vec![String::from("td:nth-child(1)")],
             position_selector: Some(String::from("td:nth-child(2)")),
             location_selector: Some(String::from("td:nth-child(3)")),
             email_selector: Some(String::from("td:nth-child(5)")),
@@ -237,10 +237,10 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![
+            name_selectors: vec![
                 String::from(".list-name a"),
                 String::from(".list-name strong"),
-            ]),
+            ],
             department_selector: None,
             email_selector: Some(String::from(".email a")),
             location_selector: None,
@@ -262,7 +262,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![String::from(".list-name")]),
+            name_selectors: vec![String::from(".list-name")],
             department_selector: None,
             email_selector: Some(String::from(".email a")),
             location_selector: None,
@@ -284,10 +284,10 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![
+            name_selectors: vec![
                 String::from(".list-name a"),
                 String::from(".list-name strong"),
-            ]),
+            ],
             department_selector: None,
             email_selector: Some(String::from(".email a")),
             location_selector: None,
@@ -306,10 +306,10 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![
+            name_selectors: vec![
                 String::from(".list-name a"),
                 String::from(".list-name strong"),
-            ]),
+            ],
             department_selector: None,
             email_selector: Some(String::from(".people-list-pyEmail a")),
             location_selector: None,
@@ -331,10 +331,10 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![
+            name_selectors: vec![
                 String::from(".list-name a"),
                 String::from(".list-name span"),
-            ]),
+            ],
             department_selector: None,
             email_selector: Some(String::from(".email a")),
             location_selector: None,
@@ -358,7 +358,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".mse-grad-card"),
-            name_selector: Some(vec![String::from("h1")]),
+            name_selectors: vec![String::from("h1")],
             department_selector: None,
             email_selector: Some(String::from("a")),
             location_selector: None,
@@ -380,10 +380,10 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
-            name_selector: Some(vec![
+            name_selectors: vec![
                 String::from(".list-name a"),
                 String::from(".list-name strong"),
-            ]),
+            ],
             department_selector: None,
             email_selector: Some(String::from(".email")),
             location_selector: None,
@@ -405,7 +405,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
-            name_selector: Some(vec![String::from("h2")]),
+            name_selectors: vec![String::from("h2")],
             department_selector: None,
             email_selector: Some(String::from("div:nth-child(2) p:nth-child(6) a")),
             location_selector: Some(String::from("div:nth-child(2) p:nth-child(4)")),
@@ -427,7 +427,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(ChemicalSciencesParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".table tbody tr"),
-            name_selector: Some(vec![String::from("td:nth-child(3)")]),
+            name_selectors: vec![String::from("td:nth-child(3)")],
             department_selector: None,
             email_selector: Some(String::from("td:nth-child(4)")),
             location_selector: Some(String::from("td:nth-child(7)")),
@@ -449,7 +449,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".table tbody tr"),
-            name_selector: Some(vec![String::from("td:nth-child(1)")]),
+            name_selectors: vec![String::from("td:nth-child(1)")],
             department_selector: None,
             email_selector: Some(String::from("td:nth-child(3) a")),
             location_selector: Some(String::from("td:nth-child(2)")),
@@ -471,7 +471,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".PhD .peopleDirectoryPerson"),
-            name_selector: Some(vec![String::from(".peopleDirectoryInfo strong")]),
+            name_selectors: vec![String::from(".peopleDirectoryInfo strong")],
             department_selector: None,
             email_selector: Some(String::from(".peopleDirectoryInfo a")),
             location_selector: Some(String::from(".peopleDirectoryInfo div")),
@@ -493,7 +493,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .directory-row"),
-            name_selector: Some(vec![String::from(".peopleDirectoryName a")]),
+            name_selectors: vec![String::from(".peopleDirectoryName a")],
             department_selector: None,
             email_selector: Some(String::from(".st_details li a")),
             location_selector: Some(String::from(".st_details li:nth-child(2)")),
@@ -517,7 +517,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(PhysicsAndAstronomyParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".person-item"),
-            name_selector: Some(vec![String::from("h2")]),
+            name_selectors: vec![String::from("h2")],
             department_selector: None,
             email_selector: Some(String::from(".email_link")),
             location_selector: Some(String::from(".println-box div:nth-child(2) .info")),
@@ -539,7 +539,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(DefaultRowParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
-            name_selector: Some(vec![String::from("div h2")]),
+            name_selectors: vec![String::from("div h2")],
             department_selector: None,
             email_selector: Some(String::from("div div p a")),
             location_selector: Some(String::from("div div p:nth-child(1)")),
@@ -561,7 +561,7 @@ async fn pipeline(state: &Arc<ServerState>) {
         parser: Box::new(VeterinaryMedicineParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".profile-entry"),
-            name_selector: Some(vec![String::from("div:nth-child(1) a")]),
+            name_selectors: vec![String::from("div:nth-child(1) a")],
             department_selector: None,
             email_selector: Some(String::from("div:nth-child(3) a")),
             location_selector: None,

@@ -7,25 +7,21 @@ use crate::{
 
 pub trait HtmlRowParser: Send + Sync {
     fn is_valid_position(&self, _element: &Option<ElementRef<'_>>) -> bool {
-        return true;
+        true
     }
 
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
-            return vec![];
-        };
-
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
         elements
             .iter()
-            .map(|name_element| {
-                name_element
-                    .text()
-                    .next()
-                    .unwrap()
-                    .trim()
-                    .split(" ")
-                    .map(String::from)
-                    .collect::<Vec<String>>()
+            .filter_map(|name_element| match name_element.text().next() {
+                Some(element) => Some(
+                    element
+                        .trim()
+                        .split(" ")
+                        .map(String::from)
+                        .collect::<Vec<String>>(),
+                ),
+                None => None,
             })
             .flatten()
             .collect()
@@ -44,7 +40,7 @@ pub trait HtmlRowParser: Send + Sync {
             return None;
         }
 
-        return Some(href.replace("mailto:", "").trim().to_lowercase());
+        Some(href.replace("mailto:", "").trim().to_lowercase())
     }
 
     fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
@@ -75,8 +71,13 @@ pub trait HtmlRowParser: Send + Sync {
     }
 
     fn parse_id(&self, element: &Option<ElementRef<'_>>) -> Option<String> {
-        self.parse_email(element)
-            .and_then(|email| Some(email.split("@").next().unwrap().trim().to_lowercase()))
+        self.parse_email(element).and_then(|email| {
+            email
+                .trim()
+                .split("@")
+                .next()
+                .and_then(|id| Some(id.to_lowercase()))
+        })
     }
 
     fn parse_positions(&self, _element: &Option<ElementRef<'_>>) -> Option<Vec<String>> {
@@ -129,79 +130,67 @@ pub struct VeterinaryMedicineParser;
 impl HtmlRowParser for DefaultRowParser {}
 
 impl HtmlRowParser for PharmacyParser {
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
+        let Some(element) = elements.first() else {
             return vec![];
         };
 
-        if elements.len() != 1 {
-            return vec![];
+        match element.text().next() {
+            None => vec![],
+            Some(text) => text
+                .trim()
+                .replace("(", "")
+                .replace(")", "")
+                .split(" ")
+                .map(String::from)
+                .collect::<Vec<String>>(),
         }
-
-        elements[0]
-            .text()
-            .next()
-            .unwrap()
-            .trim()
-            .replace("(", "")
-            .replace(")", "")
-            .split(" ")
-            .map(String::from)
-            .collect::<Vec<String>>()
     }
 }
 
 impl HtmlRowParser for LastNameFirstParser {
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
+        let Some(element) = elements.first() else {
             return vec![];
         };
 
-        if elements.len() != 1 {
-            return vec![];
+        match element.text().next() {
+            None => vec![],
+            Some(text) => text
+                .trim()
+                .split(", ")
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|part| part.split(" "))
+                .flatten()
+                .map(|part| part.to_string())
+                .collect(),
         }
-
-        elements[0]
-            .text()
-            .next()
-            .unwrap()
-            .trim()
-            .split(", ")
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|part| part.split(" "))
-            .flatten()
-            .map(|part| part.to_string())
-            .collect()
     }
 }
 
 impl HtmlRowParser for ChemicalSciencesParser {
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
+        let Some(element) = elements.first() else {
             return vec![];
         };
 
-        if elements.len() != 1 {
-            return vec![];
+        match element.text().next() {
+            Some(text) => text
+                .trim()
+                .replace("(", "")
+                .replace(")", "")
+                .split(", ")
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|part| part.split(" "))
+                .flatten()
+                .map(|part| part.to_string())
+                .collect(),
+            None => vec![],
         }
-
-        elements[0]
-            .text()
-            .next()
-            .unwrap()
-            .trim()
-            .replace("(", "")
-            .replace(")", "")
-            .split(", ")
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|part| part.split(" "))
-            .flatten()
-            .map(|part| part.to_string())
-            .collect()
     }
 }
 
@@ -218,54 +207,46 @@ impl HtmlRowParser for PhysicsAndAstronomyParser {
         text.to_lowercase() == "graduate students"
     }
 
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
+        let Some(element) = elements.first() else {
             return vec![];
         };
 
-        if elements.len() != 1 {
-            return vec![];
+        match element.text().next() {
+            Some(text) => text
+                .trim()
+                .split(", ")
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|part| part.split(" "))
+                .flatten()
+                .map(|part| part.to_string())
+                .collect(),
+            None => vec![],
         }
-
-        elements[0]
-            .text()
-            .next()
-            .unwrap()
-            .trim()
-            .split(", ")
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|part| part.split(" "))
-            .flatten()
-            .map(|part| part.to_string())
-            .collect()
     }
 }
 
 impl HtmlRowParser for VeterinaryMedicineParser {
-    fn parse_names(&self, elements: &Option<Vec<ElementRef<'_>>>) -> Vec<String> {
-        let Some(elements) = elements else {
+    fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
+        let Some(element) = elements.first() else {
             return vec![];
         };
 
-        if elements.len() != 1 {
-            return vec![];
+        match element.text().next() {
+            Some(text) => text
+                .trim()
+                .replace(".", "")
+                .split(", ")
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|part| part.split(" "))
+                .flatten()
+                .map(|part| part.to_string())
+                .collect(),
+            None => vec![],
         }
-
-        elements[0]
-            .text()
-            .next()
-            .unwrap()
-            .trim()
-            .replace(".", "")
-            .split(", ")
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .map(|part| part.split(" "))
-            .flatten()
-            .map(|part| part.to_string())
-            .collect()
     }
 }
