@@ -25,7 +25,6 @@ use tiny_http::{Request, Response};
 use tokio::task::JoinSet;
 
 /// INDIANA DATA SOURCE FROM: https://gateway.ifionline.org/report_builder/Default3a.aspx?rptType=employComp&rpt=EmployComp&rptName=Employee%20Compensation&rpt_unit_in=3186&referrer=byunit#P4072bd793c4545f0aa97626e908ace39_5_oHit0
-
 struct ServerState {
     connection_pool: Pool<SqliteConnectionManager>,
 }
