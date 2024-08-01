@@ -185,10 +185,9 @@ impl StudentScraper<HealthScrapperRequest, HealthScrapperResponse> for HealthScr
 
         while let Some(Ok((student, Ok(response)))) = student_page_requests.join_next().await {
             if response.status() != StatusCode::OK {
-                students.push(Err(Status::Internal(anyhow!(
-                    "Failed to make request for student {:?}",
-                    student
-                ))));
+                let client = self.client.clone();
+                let url = response.url().to_string();
+                student_page_requests.spawn(async move { (student, client.get(url).send().await) });
                 continue;
             }
 

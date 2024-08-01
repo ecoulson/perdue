@@ -115,7 +115,10 @@ pub trait HtmlRowParser: Send + Sync {
     }
 }
 
-pub struct DefaultRowParser;
+pub struct DefaultRowParser {
+    pub default_department: String,
+    pub default_office: Office,
+}
 
 pub struct LastNameFirstParser;
 
@@ -127,9 +130,44 @@ pub struct PhysicsAndAstronomyParser;
 
 pub struct VeterinaryMedicineParser;
 
-impl HtmlRowParser for DefaultRowParser {}
+pub struct BiologicalSciencesParser;
+
+pub struct StatisticsParser;
+
+impl HtmlRowParser for DefaultRowParser {
+    fn parse_department(&self, element: &Option<ElementRef<'_>>) -> Option<String> {
+        let Some(element) = element else {
+            return Some(self.default_department.clone());
+        };
+
+        element
+            .text()
+            .next()
+            .and_then(|department_text| Some(department_text.trim().to_string()))
+    }
+
+    fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
+        let Some(element) = element else {
+            return Some(self.default_office.clone());
+        };
+        let mut location_text = element.text();
+        let Some(location_text_node) = location_text.next() else {
+            return Some(self.default_office.clone());
+        };
+        let mut location = location_text_node.trim().split(" ");
+
+        Some(Office {
+            building: location.next().unwrap_or_else(|| "").to_string(),
+            room: location.next().unwrap_or_else(|| "").to_string(),
+        })
+    }
+}
 
 impl HtmlRowParser for PharmacyParser {
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("School of Pharmacy"))
+    }
+
     fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
         let Some(element) = elements.first() else {
             return vec![];
@@ -171,6 +209,26 @@ impl HtmlRowParser for LastNameFirstParser {
 }
 
 impl HtmlRowParser for ChemicalSciencesParser {
+    fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
+        let Some(element) = element else {
+            return None;
+        };
+        let mut location_text = element.text();
+        let Some(location_text_node) = location_text.next() else {
+            return None;
+        };
+        let mut location = location_text_node.trim().split(" ");
+
+        Some(Office {
+            room: location.next().unwrap_or_else(|| "").to_string(),
+            building: location.next().unwrap_or_else(|| "").to_string(),
+        })
+    }
+
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("Department Of Chemistry"))
+    }
+
     fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
         let Some(element) = elements.first() else {
             return vec![];
@@ -226,9 +284,62 @@ impl HtmlRowParser for PhysicsAndAstronomyParser {
             None => vec![],
         }
     }
+
+    fn parse_id(&self, element: &Option<ElementRef<'_>>) -> Option<String> {
+        element.and_then(|element| element.text().next().and_then(|id| Some(id.to_string())))
+    }
+
+    fn parse_email(&self, element: &Option<ElementRef<'_>>) -> Option<String> {
+        self.parse_id(element)
+            .and_then(|id| Some(format!("{}@purdue.edu", id)))
+    }
+
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("Department of Physics and Astronomy"))
+    }
+
+    fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
+        let Some(element) = element else {
+            return Some(Office {
+                building: String::from("PHYS"),
+                room: String::from(""),
+            });
+        };
+        let mut location_text = element.text();
+        let Some(location_text_node) = location_text.next() else {
+            return Some(Office {
+                building: String::from("PHYS"),
+                room: String::from(""),
+            });
+        };
+        let mut location = location_text_node.trim().split(" ");
+
+        Some(Office {
+            building: location
+                .next()
+                .map(|building| match building.is_empty() {
+                    true => "PHYS",
+                    false => building,
+                })
+                .unwrap_or_else(|| "")
+                .to_string(),
+            room: location.next().unwrap_or_else(|| "").to_string(),
+        })
+    }
 }
 
 impl HtmlRowParser for VeterinaryMedicineParser {
+    fn parse_office(&self, _element: &Option<ElementRef<'_>>) -> Option<Office> {
+        Some(Office {
+            building: String::from(""),
+            room: String::from(""),
+        })
+    }
+
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("Department of Veterinary Medicine"))
+    }
+
     fn parse_names(&self, elements: &Vec<ElementRef<'_>>) -> Vec<String> {
         let Some(element) = elements.first() else {
             return vec![];
@@ -237,6 +348,8 @@ impl HtmlRowParser for VeterinaryMedicineParser {
         match element.text().next() {
             Some(text) => text
                 .trim()
+                .replace("(", "")
+                .replace(")", "")
                 .replace(".", "")
                 .split(", ")
                 .collect::<Vec<_>>()
@@ -248,5 +361,72 @@ impl HtmlRowParser for VeterinaryMedicineParser {
                 .collect(),
             None => vec![],
         }
+    }
+}
+
+impl HtmlRowParser for BiologicalSciencesParser {
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("School of Biological sciences"))   
+    }
+
+    fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
+        let Some(element) = element else {
+            return None;
+        };
+        let mut location_text = element.text().skip(1);
+        let Some(location_text_node) = location_text.next() else {
+            return None;
+        };
+        let cleaned_location = location_text_node
+            .replace(" (lab)", "")
+            .replace(" (Lab)", "");
+        let mut location = cleaned_location.trim().split(" ");
+
+        Some(Office {
+            building: location.next().unwrap_or_else(|| "").to_string(),
+            room: location.next().unwrap_or_else(|| "").to_string(),
+        })
+    }
+}
+
+impl HtmlRowParser for StatisticsParser {
+    fn parse_department(&self, _element: &Option<ElementRef<'_>>) -> Option<String> {
+        Some(String::from("Department of Statistics"))
+    }
+
+    fn parse_office(&self, element: &Option<ElementRef<'_>>) -> Option<Office> {
+        let Some(element) = element else {
+            return Some(Office {
+                building: String::from("MATH"),
+                room: String::from(""),
+            });
+        };
+        let mut location_text = element.text();
+
+        if let Some("Email: ") = location_text.next() {
+            return Some(Office {
+                building: String::from("MATH"),
+                room: String::from(""),
+            });
+        }
+
+        let Some(location_text_node) = location_text.next() else {
+            return Some(Office {
+                building: String::from("MATH"),
+                room: String::from(""),
+            });
+        };
+
+        let mut location = location_text_node.trim().split(" ");
+
+        Some(Office {
+            building: location
+                .next()
+                .unwrap_or_else(|| "")
+                .replace("Office:", "")
+                .trim()
+                .to_string(),
+            room: location.next().unwrap_or_else(|| "").to_string(),
+        })
     }
 }

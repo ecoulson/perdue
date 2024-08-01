@@ -1,0 +1,11 @@
+[package]
+name = "mock_http"
+version = "0.1.0"
+
+[lib]
+name = "mock_http"
+edition = "2021"
+path = "lib.rs"
+
+[dependencies]
+tiny_http = "0.12.0"

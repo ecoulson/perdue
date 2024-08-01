@@ -1,5 +1,6 @@
-use std::{collections::LinkedList, io::Cursor, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
+use mock_http::TestServer;
 use perdue::{
     agriculture::AgricultureScraper,
     college::{GraduateStudent, Office},
@@ -8,29 +9,8 @@ use perdue::{
 };
 use pretty_assertions::assert_eq;
 use reqwest::Client;
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, Response};
 use tokio::test;
-
-fn create_test_server(responses: Vec<Response<Cursor<Vec<u8>>>>) -> Arc<Server> {
-    let server = Arc::new(Server::http("0.0.0.0:0").unwrap());
-    let mut responses = LinkedList::from_iter(responses.into_iter());
-    let request_server = server.clone();
-
-    std::thread::spawn(move || {
-        while let Ok(request) = request_server.recv() {
-            let Some(response) = responses.pop_front() else {
-                request
-                    .respond(Response::from_string("No responses queued").with_status_code(500))
-                    .unwrap();
-                return;
-            };
-
-            request.respond(response).unwrap();
-        }
-    });
-
-    server
-}
 
 async fn invoke_scrape_college(scraper: AgricultureScraper) -> Vec<Vec<GraduateStudent>> {
     scrape_college(Arc::new(scraper))
@@ -163,11 +143,14 @@ async fn scrape_agriculture_test_single_page() {
                 }
             ]
         }"#;
-    let server = create_test_server(vec![Response::from_string(response)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string(response)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
     let expected_results = vec![vec![
         GraduateStudent {
@@ -352,15 +335,18 @@ async fn scrape_agriculture_test_multiple_pages() {
             }
         ]
     }"#;
-    let server = create_test_server(vec![
+    let server = TestServer::new();
+    server.add_response(
         Response::from_string(page_1)
             .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
+    server.add_response(
         Response::from_string(page_2)
             .with_header(Header::from_str("Content-Type: application/json").unwrap()),
-    ]);
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
     let expected_results = vec![
         vec![GraduateStudent {
@@ -472,11 +458,14 @@ async fn scrape_agriculture_page_no_id() {
             }
         ]
     }"#;
-    let server = create_test_server(vec![Response::from_string(page_1)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string(page_1)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
     let expected_students = vec![vec![GraduateStudent {
         id: String::from("aaarstad"),
@@ -570,11 +559,14 @@ async fn scrape_agriculture_page_no_id_or_email() {
             }
         ]
     }"#;
-    let server = create_test_server(vec![Response::from_string(page_1)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string(page_1)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
 
     let students = scrape_college(Arc::new(scraper))
@@ -609,11 +601,14 @@ async fn scrape_agriculture_page_no_students() {
         ],
         "Data": []
     }"#;
-    let server = create_test_server(vec![Response::from_string(page_1)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string(page_1)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
 
     let students = invoke_scrape_college(scraper).await;
@@ -624,11 +619,14 @@ async fn scrape_agriculture_page_no_students() {
 #[test]
 async fn scrape_agriculture_page_empty_json() {
     let page_1 = r#"{}"#;
-    let server = create_test_server(vec![Response::from_string(page_1)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string(page_1)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
 
     let error = scrape_college(Arc::new(scraper)).await;
@@ -638,16 +636,18 @@ async fn scrape_agriculture_page_empty_json() {
 
 #[test]
 async fn scrape_agriculture_with_error() {
-    let server = create_test_server(vec![Response::from_string("{}")
-        .with_status_code(500)
-        .with_header(Header::from_str("Content-Type: application/json").unwrap())]);
+    let server = TestServer::new();
+    server.add_response(
+        Response::from_string("{}")
+            .with_status_code(500)
+            .with_header(Header::from_str("Content-Type: application/json").unwrap()),
+    );
     let scraper = AgricultureScraper {
         http_client: Arc::new(Client::new()),
-        base_url: format!("http://{}", server.server_addr().to_string()),
+        base_url: server.url(),
     };
 
     let error = scrape_college(Arc::new(scraper)).await;
-    dbg!(&error);
 
     assert!(matches!(error, Err(Status::Internal(_))));
 }

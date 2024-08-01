@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::error::Status;
@@ -26,9 +25,6 @@ pub fn scrape_html<'a>(
     selectors: &'a ScrapperSelectors,
     dom: &'a Html,
 ) -> Result<Vec<DirectoryRow<'a>>, Status> {
-    if !dom.errors.is_empty() {
-        return Err(Status::InvalidArgument(anyhow!(dom.errors.join("\n"))));
-    }
 
     let directory_row_selector = Selector::parse(&selectors.directory_row_selector).unwrap();
     let name_selectors = selectors

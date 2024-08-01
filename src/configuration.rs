@@ -84,7 +84,6 @@ pub fn read_configuration(environment_variable: &str) -> Result<Configuration, E
 
     match File::open(&configuration_path) {
         Ok(file) => serde_json::from_reader(file).map_err(|error| {
-            dbg!(&error);
             Error::from(error).context(format!(
                 "Failed to parse configuration file {}",
                 configuration_path.to_string_lossy()

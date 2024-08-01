@@ -39,9 +39,22 @@ impl HtmlRowParser for LiberalArtsParser {
                 position_text
                     .trim()
                     .split(" // ")
-                    .map(String::from)
+                    .map(|part| part.trim().to_string())
                     .collect(),
             )
+        })
+    }
+
+    fn parse_email(&self, element: &Option<ElementRef<'_>>) -> Option<String> {
+        element.and_then(|element| Some(element.text().collect::<Vec<&str>>().join("")))
+    }
+}
+
+impl LiberalArtsScrapper {
+    pub fn new(url: &str, client: Arc<Client>) -> Arc<LiberalArtsScrapper> {
+        Arc::new(LiberalArtsScrapper {
+            url: String::from(url),
+            client,
         })
     }
 }

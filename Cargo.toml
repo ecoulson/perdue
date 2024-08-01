@@ -20,4 +20,7 @@ futures = "0.3.30"
 anyhow = "1.0.86"
 num-format = "0.4.4"
 tiny_http = "0.12.0"
+
+[dev-dependencies]
 pretty_assertions = "1.4.0"
+mock_http = { path = "mock_http" }

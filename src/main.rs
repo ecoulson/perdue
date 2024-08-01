@@ -13,8 +13,8 @@ use perdue::{
     html::ScrapperSelectors,
     liberal_arts::LiberalArtsScrapper,
     parser::{
-        ChemicalSciencesParser, DefaultRowParser, PharmacyParser, PhysicsAndAstronomyParser,
-        VeterinaryMedicineParser,
+        BiologicalSciencesParser, ChemicalSciencesParser, DefaultRowParser, PharmacyParser,
+        PhysicsAndAstronomyParser, StatisticsParser, VeterinaryMedicineParser,
     },
     salary::{process_salaries, store_salaries},
     scraper::{scrape_college, SinglePageStudentScrapper},
@@ -174,11 +174,14 @@ async fn pipeline(state: &Arc<ServerState>) {
             default_department: String::from("School of Education"),
             default_office: Office::default(),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_department: String::from("School of Education"),
+            default_office: Office::default(),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".grad-directory-archive-container"),
             position_selector: Some(String::from(".position")),
-            name_selectors: vec![String::from(".grad-directory-archive-println h2")],
+            name_selectors: vec![String::from(".grad-directory-archive-info h2")],
             email_selector: Some(String::from(".grad-directory-archive-contact a")),
             department_selector: Some(String::from(".department")),
             location_selector: None,
@@ -218,7 +221,7 @@ async fn pipeline(state: &Arc<ServerState>) {
             name_selectors: vec![String::from("td:nth-child(1)")],
             position_selector: Some(String::from("td:nth-child(2)")),
             location_selector: Some(String::from("td:nth-child(3)")),
-            email_selector: Some(String::from("td:nth-child(5)")),
+            email_selector: Some(String::from("td:nth-child(5) a")),
             department_selector: None,
         },
     })));
@@ -234,7 +237,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Biomedical Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("Hall of Biomedical Engineering"),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Biomedical Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![
@@ -259,7 +268,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Chemical Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("Forney Hall of Chemical Engineering"),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Chemical Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![String::from(".list-name")],
@@ -281,7 +296,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Engineering Education"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("Armstrong Hall"),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Engineering Education"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![
@@ -303,7 +324,10 @@ async fn pipeline(state: &Arc<ServerState>) {
             default_office: Office::default(),
             default_department: String::from("School of Environmental and Ecological Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office::default(),
+            default_department: String::from("School of Environmental and Ecological Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![
@@ -328,7 +352,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Industrial Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("Grissom Hall"),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Industrial Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![
@@ -355,7 +385,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Materials Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from(""),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Materials Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".mse-grad-card"),
             name_selectors: vec![String::from("h1")],
@@ -377,7 +413,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Nuclear Engineering"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from(""),
+                room: String::from(""),
+            },
+            default_department: String::from("School of Nuclear Engineering"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".people-list .row"),
             name_selectors: vec![
@@ -385,7 +427,7 @@ async fn pipeline(state: &Arc<ServerState>) {
                 String::from(".list-name strong"),
             ],
             department_selector: None,
-            email_selector: Some(String::from(".email")),
+            email_selector: Some(String::from(".email a")),
             location_selector: None,
             position_selector: None,
         },
@@ -402,7 +444,7 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of Biological Sciences"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(BiologicalSciencesParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
             name_selectors: vec![String::from("h2")],
@@ -429,7 +471,7 @@ async fn pipeline(state: &Arc<ServerState>) {
             directory_row_selector: String::from(".table tbody tr"),
             name_selectors: vec![String::from("td:nth-child(3)")],
             department_selector: None,
-            email_selector: Some(String::from("td:nth-child(4)")),
+            email_selector: Some(String::from("td:nth-child(4) a")),
             location_selector: Some(String::from("td:nth-child(7)")),
             position_selector: None,
         },
@@ -446,7 +488,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("Department of Computer Science"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("LWSN"),
+                room: String::from(""),
+            },
+            default_department: String::from("Department of Computer Science"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".table tbody tr"),
             name_selectors: vec![String::from("td:nth-child(1)")],
@@ -468,7 +516,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("School of EAPS"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("HAMP"),
+                room: String::from(""),
+            },
+            default_department: String::from("School of EAPS"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from(".PhD .peopleDirectoryPerson"),
             name_selectors: vec![String::from(".peopleDirectoryInfo strong")],
@@ -490,7 +544,13 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("Department of Mathematics"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(DefaultRowParser {
+            default_office: Office {
+                building: String::from("MATH"),
+                room: String::from(""),
+            },
+            default_department: String::from("Department of Mathematics"),
+        }),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .directory-row"),
             name_selectors: vec![String::from(".peopleDirectoryName a")],
@@ -520,7 +580,7 @@ async fn pipeline(state: &Arc<ServerState>) {
             name_selectors: vec![String::from("h2")],
             department_selector: None,
             email_selector: Some(String::from(".email_link")),
-            location_selector: Some(String::from(".println-box div:nth-child(2) .info")),
+            location_selector: Some(String::from(".info-box div:nth-child(2) .info")),
             position_selector: Some(String::from("a[data-category=\"graduate\"]")),
         },
     })));
@@ -536,7 +596,7 @@ async fn pipeline(state: &Arc<ServerState>) {
             },
             default_department: String::from("Department of Statistics"),
         },
-        parser: Box::new(DefaultRowParser {}),
+        parser: Box::new(StatisticsParser {}),
         selector: ScrapperSelectors {
             directory_row_selector: String::from("#container .element"),
             name_selectors: vec![String::from("div h2")],
