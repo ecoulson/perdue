@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS Students;
+DROP TABLE IF EXISTS Salaries;

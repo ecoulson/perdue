@@ -1,0 +1,2 @@
+ALTER TABLE Students DROP COLUMN CollegeId;
+DROP TABLE IF EXISTS College;

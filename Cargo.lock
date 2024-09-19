@@ -826,13 +826,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock_http"
-version = "0.1.0"
-dependencies = [
- "tiny_http",
-]
-
-[[package]]
 name = "native-tls"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -990,7 +983,6 @@ dependencies = [
  "askama",
  "csv",
  "futures",
- "mock_http",
  "num-format",
  "pretty_assertions",
  "r2d2",

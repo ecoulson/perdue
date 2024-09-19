@@ -1,6 +1,9 @@
 {
     "port": 7777,
     "host": "0.0.0.0",
+    "database_migration": {
+        "migration_path": "/home/ecoulson/Code/perdue/migrations"
+    },
     "database": {
         "username": "",
         "password": "",

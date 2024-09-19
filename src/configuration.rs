@@ -1,4 +1,4 @@
-use std::{env::current_dir, fmt::Display, fs::File};
+use std::{env::current_dir, fmt::Display, fs::File, path::PathBuf};
 
 use anyhow::{anyhow, Error};
 use serde::Deserialize;
@@ -6,8 +6,14 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct Configuration {
     pub database: DatabaseConfiguration,
+    pub database_migration: DatabaseMigration,
     pub port: u32,
     pub host: String,
+}
+
+#[derive(Deserialize)]
+pub struct DatabaseMigration {
+    pub migration_path: String,
 }
 
 #[derive(Deserialize)]
@@ -16,14 +22,13 @@ pub struct DatabaseConfiguration {
     pub password: String,
     pub database_name: String,
     pub connection_type: DatabaseConnectionType,
-    pub connection_pool: DatabaseConnectionPoolConfiguration
+    pub connection_pool: DatabaseConnectionPoolConfiguration,
 }
 
 #[derive(Deserialize)]
 pub struct DatabaseConnectionPoolConfiguration {
-    pub max_size: u32
+    pub max_size: u32,
 }
-
 
 #[derive(Deserialize)]
 pub enum DatabaseConnectionType {
@@ -35,7 +40,7 @@ impl DatabaseConnectionType {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Memory => ":memory:",
-            Self::Path(path) => path
+            Self::Path(path) => path,
         }
     }
 }
@@ -72,13 +77,19 @@ impl Display for Environment {
     }
 }
 
-pub fn read_configuration(environment_variable: &str) -> Result<Configuration, Error> {
+pub fn read_configuration(
+    environment_variable: &str,
+    local_configuration_path_variable: &str,
+) -> Result<Configuration, Error> {
     let environment = std::env::var(environment_variable)
         .unwrap_or_else(|_| "local".into())
         .try_into()
         .map_err(|error| Error::from(error).context("Failed to parse environment variable"))?;
     let configuration_path = match environment {
-        Environment::Local => current_dir().unwrap().join("configuration/local.json"),
+        Environment::Local => std::env::var(local_configuration_path_variable).map_or_else(
+            |_| current_dir().unwrap().join("configuration/local.json"),
+            |path| PathBuf::from(path),
+        ),
         Environment::Production => current_dir().unwrap().join("configuration/production.json"),
     };
 

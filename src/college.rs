@@ -5,7 +5,7 @@ use num_format::{Buffer, Locale};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
-use tiny_http::{Header, Response};
+use tiny_http::{Header, Request, Response};
 
 use crate::error::Status;
 
@@ -15,8 +15,10 @@ pub struct Office {
     pub room: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct College {
+    pub id: String,
+    pub name: String,
     pub base_url: String,
     pub default_office: Office,
     pub default_department: String,
@@ -37,8 +39,16 @@ pub struct ListStudents {
     pub directory: Vec<StudentDirectoryRow>,
 }
 
+#[derive(Template)]
+#[template(path = "college_page.html")]
+pub struct CollegePage {
+    pub college: College,
+    pub students: Vec<StudentDirectoryRow>,
+}
+
 pub struct StudentDirectoryRow {
     pub id: String,
+    pub college_id: String,
     pub department: String,
     pub email: String,
     pub name: String,
@@ -51,7 +61,7 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
     let connection = connection_pool.get().unwrap();
     let mut statement = connection
         .prepare(
-            "SELECT Id, Department, Email, Name, Office, Year, AmountUsd 
+            "SELECT Id, Department, Email, Name, Office, Year, AmountUsd, CollegeId
                  FROM Students JOIN Salaries ON Students.Id = Salaries.StudentId ORDER BY Id ASC",
         )
         .unwrap();
@@ -70,6 +80,7 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
 
         directory.push(StudentDirectoryRow {
             id: row.get("Id").unwrap(),
+            college_id: row.get("CollegeId").unwrap(),
             department: row.get("Department").unwrap(),
             email: row.get("Email").unwrap(),
             name: name
@@ -84,6 +95,64 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
     }
 
     Response::from_string(ListStudents { directory }.to_string())
+        .with_header(Header::from_str("Content-Type: text/html").unwrap())
+}
+
+// Renders a page with information about the college and all graduate students in the college
+pub fn display_college(
+    request: &Request,
+    connection_pool: &Pool<SqliteConnectionManager>,
+) -> Response<Cursor<Vec<u8>>> {
+    let college_id = request.url().split("/college/").skip(1).next().unwrap();
+    let connection = connection_pool.get().unwrap();
+    let mut college_statement = connection
+        .prepare("SELECT Id, Name, Url FROM Colleges WHERE Id = ?1")
+        .unwrap();
+    let mut students_statement = connection
+        .prepare(
+            "SELECT Id, Department, Email, Name, Office, Year, AmountUsd, CollegeId
+                 FROM Students JOIN Salaries ON Students.Id = Salaries.StudentId AND Students.CollegeId = ?1 ORDER BY Id ASC",
+        )
+        .unwrap();
+    let mut students = vec![];
+    let mut student_query = students_statement.query(&[&college_id]).unwrap();
+    let college = college_statement
+        .query_row(&[&college_id], |row| {
+            let mut college = College::default();
+            college.name = row.get("Name").unwrap();
+            college.id = row.get("Id").unwrap();
+
+            Ok(college)
+        })
+        .unwrap();
+
+    while let Ok(Some(row)) = student_query.next() {
+        let name: String = row.get("Name").unwrap();
+        let office_raw: String = row.get("Office").unwrap();
+        let year: usize = row.get("Year").unwrap();
+        let yearly_compensation: usize = row.get("AmountUsd").unwrap();
+        let dollars = yearly_compensation / 100;
+        let cents = yearly_compensation % 100;
+        let mut compensation_buffer = Buffer::default();
+        compensation_buffer.write_formatted(&dollars, &Locale::en);
+
+        students.push(StudentDirectoryRow {
+            id: row.get("Id").unwrap(),
+            department: row.get("Department").unwrap(),
+            college_id: row.get("CollegeId").unwrap(),
+            email: row.get("Email").unwrap(),
+            name: name
+                .split(", ")
+                .map(|part| part.to_string())
+                .collect::<Vec<String>>()
+                .join(" "),
+            office: serde_json::from_str(&office_raw).unwrap(),
+            yearly_compensation: format!("${}.{}", compensation_buffer.to_string(), cents),
+            year,
+        });
+    }
+
+    Response::from_string(CollegePage { college, students }.to_string())
         .with_header(Header::from_str("Content-Type: text/html").unwrap())
 }
 
