@@ -1,0 +1,18 @@
+[package]
+name = "confquick"
+version = "0.1.0"
+license = "MIT"
+description = "A simple configuration loader"
+homepage = "https://github.com/ecoulson/perdue/tree/main/configuration"
+repository = "https://github.com/ecoulson/perdue/tree/main/configuration"
+readme = "README.md"
+
+[lib]
+name = "configuration"
+edition = "2021"
+path = "lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0.86"

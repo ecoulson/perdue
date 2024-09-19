@@ -1,6 +1,6 @@
 use std::{env, fs::DirEntry};
 
-use perdue::configuration::read_configuration;
+use configuration::read_configuration;
 use rusqlite::Connection;
 
 #[derive(Debug)]

@@ -5,14 +5,12 @@ use std::{
     thread,
 };
 
+use configuration::Configuration;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use tiny_http::{Request, Response, Server};
 
-use crate::{
-    college::{display_college, list_students},
-    configuration::Configuration,
-};
+use crate::college::{display_college, list_students};
 
 pub struct ServerState {
     pub connection_pool: Pool<SqliteConnectionManager>,

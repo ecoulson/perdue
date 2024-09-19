@@ -180,6 +180,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
+name = "confquick"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "confquick"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1941d43d0704c1d2108b5c52fd7a185d248d4a203fbbcd8b993e9f96a7dde84"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -784,7 +804,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 name = "migrate"
 version = "0.1.0"
 dependencies = [
- "perdue",
+ "confquick 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusqlite",
 ]
 
@@ -834,6 +854,15 @@ dependencies = [
 [[package]]
 name = "mock_http"
 version = "0.1.0"
+dependencies = [
+ "tiny_http",
+]
+
+[[package]]
+name = "mock_http"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5474e08e610d4b44b8c57cfe8c0374cc1c2fd81d4233c355e480afefb6b361bc"
 dependencies = [
  "tiny_http",
 ]
@@ -984,9 +1013,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "askama",
+ "confquick 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv",
  "futures",
- "mock_http",
+ "mock_http 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-format",
  "pretty_assertions",
  "r2d2",

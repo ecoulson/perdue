@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use configuration::read_configuration;
 use perdue::{
-    configuration::read_configuration,
     pipeline::start_pipeline,
     server::{start_server, ServerState},
 };
@@ -22,9 +22,9 @@ async fn main() {
         connection_pool: connection_pool.clone(),
     });
     let connection = connection_pool.get().unwrap();
-    let version: usize = connection.query_row("SELECT Version From Migration", [], |row| {
-        row.get(0)
-    }).unwrap_or(0);
+    let version: usize = connection
+        .query_row("SELECT Version From Migration", [], |row| row.get(0))
+        .unwrap_or(0);
     println!("Current migration version: {version}");
 
     start_pipeline(state.clone());

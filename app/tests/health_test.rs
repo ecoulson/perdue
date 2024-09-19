@@ -1,5 +1,3 @@
-extern crate mock_http;
-
 use std::{str::FromStr, sync::Arc};
 
 use mock_http::TestServer;

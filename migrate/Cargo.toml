@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-perdue = { path = "../app" }
+confquick = { version = "0.1.0" }
 rusqlite = { version = "0.31.0" }
