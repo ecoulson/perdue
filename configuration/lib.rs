@@ -1,49 +1,7 @@
 use std::{env::current_dir, fmt::Display, fs::File, path::PathBuf};
 
 use anyhow::{anyhow, Context, Error};
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-pub struct Configuration {
-    pub database: DatabaseConfiguration,
-    pub database_migration: DatabaseMigration,
-    pub port: u32,
-    pub host: String,
-}
-
-#[derive(Deserialize)]
-pub struct DatabaseMigration {
-    pub migration_path: String,
-}
-
-#[derive(Deserialize)]
-pub struct DatabaseConfiguration {
-    pub username: String,
-    pub password: String,
-    pub database_name: String,
-    pub connection_type: DatabaseConnectionType,
-    pub connection_pool: DatabaseConnectionPoolConfiguration,
-}
-
-#[derive(Deserialize)]
-pub struct DatabaseConnectionPoolConfiguration {
-    pub max_size: u32,
-}
-
-#[derive(Deserialize)]
-pub enum DatabaseConnectionType {
-    Memory,
-    Path(String),
-}
-
-impl DatabaseConnectionType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Memory => ":memory:",
-            Self::Path(path) => path,
-        }
-    }
-}
+use serde::de::DeserializeOwned;
 
 pub enum Environment {
     Local,
@@ -77,10 +35,13 @@ impl Display for Environment {
     }
 }
 
-pub fn read_configuration(
+pub fn read_configuration<T>(
     environment_variable: &str,
     configuration_path_variable: &str,
-) -> Result<Configuration, Error> {
+) -> Result<T, Error>
+where
+    T: DeserializeOwned,
+{
     let environment = std::env::var(environment_variable)
         .unwrap_or_else(|_| "local".into())
         .try_into()

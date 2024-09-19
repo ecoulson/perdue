@@ -1,6 +1,6 @@
 [package]
 name = "confquick"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT"
 description = "A simple configuration loader"
 homepage = "https://github.com/ecoulson/perdue/tree/main/configuration"

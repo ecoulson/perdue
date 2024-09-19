@@ -8,8 +8,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder 
 COPY --from=planner /app/recipe.json recipe.json
-COPY . .
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
+COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin perdue
 
 FROM ecoulson/union-base:latest AS runtime
@@ -22,3 +22,4 @@ COPY data data
 COPY assets assets
 ENV ENVIRONMENT=production
 ENTRYPOINT ["./perdue"]
+

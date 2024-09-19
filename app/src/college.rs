@@ -223,7 +223,7 @@ pub fn store_students(
                     student.id,
                     student.names.join(" ").replace("'", "''"),
                     student.email.replace("'", "''"),
-                    student.department,
+                    student.department.replace("'", "''"),
                     serde_json::to_string(&student.office).unwrap()
                 )),
                 Err(error) => {

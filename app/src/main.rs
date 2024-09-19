@@ -6,6 +6,49 @@ use perdue::{
     server::{start_server, ServerState},
 };
 use r2d2_sqlite::SqliteConnectionManager;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct Configuration {
+    pub database: DatabaseConfiguration,
+    pub migration: DatabaseMigration,
+    pub port: u32,
+    pub host: String,
+}
+
+#[derive(Deserialize)]
+pub struct DatabaseMigration {
+    pub migration_path: String,
+}
+
+#[derive(Deserialize)]
+pub struct DatabaseConfiguration {
+    pub username: String,
+    pub password: String,
+    pub database_name: String,
+    pub connection_type: DatabaseConnectionType,
+    pub connection_pool: DatabaseConnectionPoolConfiguration,
+}
+
+#[derive(Deserialize)]
+pub struct DatabaseConnectionPoolConfiguration {
+    pub max_size: u32,
+}
+
+#[derive(Deserialize)]
+pub enum DatabaseConnectionType {
+    Memory,
+    Path(String),
+}
+
+impl DatabaseConnectionType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Memory => ":memory:",
+            Self::Path(path) => path,
+        }
+    }
+}
 
 /// INDIANA DATA SOURCE FROM: https://gateway.ifionline.org/report_builder/Default3a.aspx?rptType=employComp&rpt=EmployComp&rptName=Employee%20Compensation&rpt_unit_in=3186&referrer=byunit#P4072bd793c4545f0aa97626e908ace39_5_oHit0
 #[tokio::main]
