@@ -1,6 +1,7 @@
 use std::{env, fs::DirEntry};
 
 use configuration::read_configuration;
+use migrate::configuration::Configuration;
 use rusqlite::Connection;
 
 #[derive(Debug)]
@@ -23,11 +24,12 @@ impl Migration {
 
 fn main() {
     println!("Migrating db...");
-    let configuration = read_configuration("ENVIRONMENT", "CONFIGURATION_PATH")
-        .unwrap_or_else(|error| panic!("{}", error.to_string()));
+    let configuration: Configuration =
+        read_configuration("ENVIRONMENT", "MIGRATION_CONFIGURATION_PATH")
+            .unwrap_or_else(|error| panic!("{}", error.to_string()));
     let mut args = env::args().skip(1);
     let database_path = configuration.database.connection_type.as_str();
-    let migrations_directory = configuration.database_migration.migration_path;
+    let migrations_directory = configuration.migration_path;
     let direction = match args.next().unwrap().to_lowercase().as_str() {
         "up" => Direction::Up,
         "down" => Direction::Down,

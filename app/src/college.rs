@@ -77,6 +77,7 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
         let cents = yearly_compensation % 100;
         let mut compensation_buffer = Buffer::default();
         compensation_buffer.write_formatted(&dollars, &Locale::en);
+        dbg!(row);
 
         directory.push(StudentDirectoryRow {
             id: row.get("Id").unwrap(),
@@ -219,12 +220,13 @@ pub fn store_students(
                 Ok(student) => Some(format!(
                     "SELECT '{}' AS Id, '{}' AS Name,
                       '{}' AS Email, '{}' AS Department,
-                      '{}' AS Office\n",
+                      '{}' AS Office, '{}' AS CollegeId\n",
                     student.id,
                     student.names.join(" ").replace("'", "''"),
                     student.email.replace("'", "''"),
                     student.department.replace("'", "''"),
-                    serde_json::to_string(&student.office).unwrap()
+                    serde_json::to_string(&student.office).unwrap(),
+                    "1"
                 )),
                 Err(error) => {
                     eprintln!("{}", error);
@@ -238,7 +240,7 @@ pub fn store_students(
             .unwrap()
             .execute(
                 &format!(
-                    "INSERT OR REPLACE INTO Students (Id, Name, Email, Department, Office) {query}"
+                    "INSERT OR REPLACE INTO Students (Id, Name, Email, Department, Office, CollegeId) {query}"
                 ),
                 [],
             )

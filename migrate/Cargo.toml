@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-confquick = { version = "0.1.0" }
+confquick = { version = "0.1.1" }
 rusqlite = { version = "0.31.0" }
+serde = { version = "1.0", features = ["derive"] }
