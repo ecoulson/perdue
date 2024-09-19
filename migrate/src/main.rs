@@ -23,7 +23,7 @@ impl Migration {
 
 fn main() {
     println!("Migrating db...");
-    let configuration = read_configuration("ENVIRONMENT", "LOCAL_CONFIGURATION")
+    let configuration = read_configuration("ENVIRONMENT", "CONFIGURATION_PATH")
         .unwrap_or_else(|error| panic!("{}", error.to_string()));
     let mut args = env::args().skip(1);
     let database_path = configuration.database.connection_type.as_str();
