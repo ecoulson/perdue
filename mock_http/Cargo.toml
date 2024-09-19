@@ -1,6 +1,11 @@
 [package]
 name = "mock_http"
 version = "0.1.0"
+license = "MIT"
+description = "A simple mock http server for use in testing"
+homepage = "https://github.com/ecoulson/perdue/tree/main/mock_http"
+repository = "https://github.com/ecoulson/perdue/tree/main/mock_http"
+readme = "README.md"
 
 [lib]
 name = "mock_http"
