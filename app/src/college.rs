@@ -4,10 +4,11 @@ use askama::Template;
 use num_format::{Buffer, Locale};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{Connection, Statement};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Request, Response};
 
-use crate::error::Status;
+use crate::{error::Status, server::empty_fragment};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct Office {
@@ -37,6 +38,7 @@ pub struct GraduateStudent {
 #[template(path = "list_students.html")]
 pub struct ListStudents {
     pub directory: Vec<StudentDirectoryRow>,
+    pub filters: Vec<DirectoryFilter>,
 }
 
 #[derive(Template)]
@@ -44,6 +46,13 @@ pub struct ListStudents {
 pub struct CollegePage {
     pub college: College,
     pub students: Vec<StudentDirectoryRow>,
+}
+
+#[derive(Template)]
+#[template(path = "directory_filter.html")]
+pub struct DirectoryFilter {
+    pub column: String,
+    pub value: String,
 }
 
 pub struct StudentDirectoryRow {
@@ -57,14 +66,219 @@ pub struct StudentDirectoryRow {
     pub year: usize,
 }
 
-pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Response<Cursor<Vec<u8>>> {
-    let connection = connection_pool.get().unwrap();
-    let mut statement = connection
-        .prepare(
-            "SELECT Id, Department, Email, Name, Office, Year, AmountUsd, CollegeId
-                 FROM Students JOIN Salaries ON Students.Id = Salaries.StudentId ORDER BY Id ASC",
+#[derive(Template)]
+#[template(path = "string_input.html")]
+pub struct StringFilter {
+    name: String,
+}
+
+#[derive(Template)]
+#[template(path = "directory_filter_menu.html")]
+pub struct DirectoryFilterMenu {
+    pub column: Column,
+}
+
+pub enum FilterType {
+    String(StringFilter),
+}
+
+pub struct Column {
+    pub name: String,
+    pub filter: FilterType,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct DirectoryFilterQuery {
+    filters: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct CreateDirectoryFilterRequest {
+    column: String,
+    value: String,
+}
+
+pub fn build_directory_filter_menu() -> Response<Cursor<Vec<u8>>> {
+    Response::from_string(
+        DirectoryFilterMenu {
+            column: Column {
+                name: String::from("Id"),
+                filter: FilterType::String(StringFilter {
+                    name: String::from("value"),
+                }),
+            },
+        }
+        .to_string(),
+    )
+    .with_header(Header::from_str("Content-Type: text/html").unwrap())
+}
+
+pub fn delete_directory_filter(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body).unwrap();
+    let filter = serde_urlencoded::from_str::<CreateDirectoryFilterRequest>(&body).unwrap();
+    let mut response = empty_fragment()
+        .with_header(Header::from_str("HX-Trigger-After-Settle: filter-directory").unwrap());
+
+    for header in request.headers() {
+        if header.field.to_string().to_lowercase() != "hx-current-url" {
+            continue;
+        }
+
+        let mut query = serde_qs::from_str::<DirectoryFilterQuery>(
+            &header
+                .value
+                .to_string()
+                .split("?")
+                .skip(1)
+                .next()
+                .unwrap_or(""),
         )
         .unwrap();
+
+        if let Some(filters) = query.filters.as_mut() {
+            if let Some(index) = filters.iter().position(|query_filter| {
+                query_filter == &format!("{}={}", filter.column, filter.value)
+            }) {
+                filters.remove(index);
+            }
+        }
+
+        response.add_header(
+            Header::from_str(&format!(
+                "HX-Push-Url: /?{}",
+                serde_qs::to_string(&query).unwrap()
+            ))
+            .unwrap(),
+        );
+    }
+
+    response
+}
+
+pub fn create_directory_filter(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body).unwrap();
+    let filter = serde_urlencoded::from_str::<CreateDirectoryFilterRequest>(&body).unwrap();
+    let mut response = Response::from_string(
+        DirectoryFilter {
+            column: filter.column.clone(),
+            value: filter.value.clone(),
+        }
+        .to_string(),
+    )
+    .with_header(Header::from_str("Content-Type: text/html").unwrap());
+
+    for header in request.headers() {
+        if header.field.to_string().to_lowercase() != "hx-current-url" {
+            continue;
+        }
+
+        let mut query = serde_qs::from_str::<DirectoryFilterQuery>(
+            &header
+                .value
+                .to_string()
+                .split("?")
+                .skip(1)
+                .next()
+                .unwrap_or(""),
+        )
+        .unwrap();
+
+        let serialized_filter = format!("{}={}", filter.column, filter.value);
+
+        if let Some(filters) = query.filters.as_mut() {
+            filters.push(serialized_filter);
+        } else {
+            query.filters = Some(vec![serialized_filter]);
+        }
+
+        response.add_header(
+            Header::from_str(&format!(
+                "HX-Push-Url: /?{}",
+                serde_qs::to_string(&query).unwrap()
+            ))
+            .unwrap(),
+        );
+    }
+
+    response.add_header(Header::from_str("HX-Trigger: close-directory-filter-menu").unwrap());
+    response.add_header(Header::from_str("HX-Trigger-After-Settle: filter-directory").unwrap());
+
+    response
+}
+
+#[derive(Template)]
+#[template(path = "directory.html")]
+pub struct Directory {
+    pub directory: Vec<StudentDirectoryRow>,
+}
+
+pub fn build_directory(
+    request: &Request,
+    connection_pool: &Pool<SqliteConnectionManager>,
+) -> Response<Cursor<Vec<u8>>> {
+    let connection = connection_pool.get().unwrap();
+    let mut url = String::new();
+
+    for header in request.headers() {
+        if header.field.to_string().to_lowercase() != "hx-current-url" {
+            continue;
+        }
+
+        url = header.value.to_string();
+    }
+
+    Response::from_string(
+        Directory {
+            directory: build_rows(prepare_directory_statement(&url, &connection))
+                .into_iter()
+                .collect(),
+        }
+        .to_string(),
+    )
+    .with_header(Header::from_str("Content-Type: text/html").unwrap())
+}
+
+fn prepare_directory_statement<'a>(url: &str, connection: &'a Connection) -> Statement<'a> {
+    let query =
+        serde_qs::from_str::<DirectoryFilterQuery>(&url.split("?").skip(1).next().unwrap_or(""))
+            .unwrap();
+    let condition: String = query
+        .filters
+        .map(|filter| {
+            filter
+                .iter()
+                .map(|filter| {
+                    let mut parts = filter.split("=");
+                    let column = parts.next().unwrap();
+                    let value = parts.next().unwrap();
+
+                    format!("{} = '{}'", column, value)
+                })
+                .collect::<Vec<String>>()
+                .join(" OR ")
+        })
+        .unwrap_or(String::new());
+
+    if condition.is_empty() {
+        return connection
+            .prepare(
+                "SELECT Id, Department, Email, Name, Office, Year, AmountUsd, CollegeId
+                 FROM Students JOIN Salaries ON Students.Id = Salaries.StudentId ORDER BY Id ASC",
+            )
+            .unwrap();
+    }
+
+    connection
+        .prepare(&format!(
+            "SELECT Id, Department, Email, Name, Office, Year, AmountUsd, CollegeId
+                 FROM Students JOIN Salaries ON Students.Id = Salaries.StudentId WHERE {} ORDER BY Id ASC", condition),
+        )
+        .unwrap()
+}
+
+fn build_rows(mut statement: Statement) -> Vec<StudentDirectoryRow> {
     let mut query = statement.query([]).unwrap();
     let mut directory = Vec::new();
 
@@ -77,7 +291,6 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
         let cents = yearly_compensation % 100;
         let mut compensation_buffer = Buffer::default();
         compensation_buffer.write_formatted(&dollars, &Locale::en);
-        dbg!(row);
 
         directory.push(StudentDirectoryRow {
             id: row.get("Id").unwrap(),
@@ -95,8 +308,45 @@ pub fn list_students(connection_pool: &Pool<SqliteConnectionManager>) -> Respons
         });
     }
 
-    Response::from_string(ListStudents { directory }.to_string())
-        .with_header(Header::from_str("Content-Type: text/html").unwrap())
+    directory
+}
+
+pub fn list_students(
+    request: &Request,
+    connection_pool: &Pool<SqliteConnectionManager>,
+) -> Response<Cursor<Vec<u8>>> {
+    let connection = connection_pool.get().unwrap();
+    let query = serde_qs::from_str::<DirectoryFilterQuery>(
+        request.url().split("?").skip(1).next().unwrap_or(""),
+    )
+    .unwrap();
+    let filters: Vec<DirectoryFilter> = query
+        .filters
+        .map(|filter| {
+            filter
+                .iter()
+                .map(|filter| {
+                    let mut parts = filter.split("=");
+                    let column = parts.next().unwrap();
+                    let value = parts.next().unwrap();
+
+                    DirectoryFilter {
+                        column: column.to_string(),
+                        value: value.to_string(),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or(vec![]);
+
+    Response::from_string(
+        ListStudents {
+            directory: build_rows(prepare_directory_statement(request.url(), &connection)),
+            filters,
+        }
+        .to_string(),
+    )
+    .with_header(Header::from_str("Content-Type: text/html").unwrap())
 }
 
 // Renders a page with information about the college and all graduate students in the college

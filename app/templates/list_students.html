@@ -2,31 +2,25 @@
 
 {% block content %}
 <div>
-  <table class="border-collapse table-fixed w-full border border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-800 text-sm shadow-sm">
-    <thead class="bg-slate-50 dark:bg-slate-700">
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Id</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Name</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Email</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Department</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Building</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Room</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Yearly Compensation</th>
-      <th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left">Year</th>
-    </thead>
-    {% for entry in directory %}
-    <tr>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.id }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.name }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.email }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">
-          <a href="/college/{{ entry.college_id }}">{{ entry.department }}</a>
-      </td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.office.building }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.office.room }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.yearly_compensation }}</td>
-      <td class="border border-slate-300 dark:border-slate-700 p-4 text-slate-500 dark:text-slate-400">{{ entry.year }}</td>
-    </tr>
-    {% endfor %}
-  </table>
+    <div class="filter w-full flex align-center gap-x-4">
+        <div class="filter-display flex">
+            {% for filter in filters %}
+                {{ filter|safe }}
+            {% endfor %}
+        </div>
+        <div class="create-filter relative">
+            <button class="flex gap-x-4 align-center" hx-trigger="click" hx-get="/directory_filter_menu" hx-target=".filter-form" hx-swap="innerHTML">
+                <span>Create Filter</span><img class="w-6" src="assets/plus.svg" />
+            </button>
+            <div class="filter-form absolute" 
+                hx-trigger="close-directory-filter-menu from:body, mouseexit" 
+                hx-get="/empty_fragment" 
+                hx-swap="innerHTML">
+            </div>
+        </div>
+    </div>
+</div>
+<div hx-trigger="filter-directory from:body" hx-get="/directory" hx-swap="innerHTML">
+    {% include "directory.html" %}
 </div>
 {% endblock %}

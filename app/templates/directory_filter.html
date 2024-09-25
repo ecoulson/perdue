@@ -1,0 +1,10 @@
+<form class="directory-filter bg-blue-700 text-white px-4 py-2 flex flex-center align-center gap-2 my-0">
+    <input hidden name="column" value="{{column}}" />
+    <input hidden name="value" value="{{value}}" />
+    <span>{{column}}</span>
+    <span>=</span>
+    <span>{{value}}</span>
+    <button hx-trigger="click" hx-delete="/remove_directory_filter" hx-target=".directory-filter" hx-swap="outerHTML">
+        <img class="w-6 rotate-45 fill-white" src="assets/plus.svg" />
+    </button>
+</form>

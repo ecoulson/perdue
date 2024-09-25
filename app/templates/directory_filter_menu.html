@@ -1,0 +1,13 @@
+<form class="border-2 bg-white">
+    <div>
+        <h3>{{ column.name }}</h3>
+        <input name="column" hidden value="{{ column.name }}" />
+        {% match column.filter %}
+            {% when FilterType::String with (filter) %}
+                {{ filter|safe }}
+        {% endmatch %}
+    </div>
+    <button hx-post="/create_directory_filter" hx-target=".filter-display" hx-swap="beforeend">
+        Create Filter
+    </button>
+</form>

@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "license": "ISC",
   "scripts": {
-    "format": "prettier --write --ignore-unknown ."
+    "format": "prettier --write --ignore-unknown .",
+    "styles": "npx tailwindcss -i ./styles/tailwind.css -o ./assets/main.css --watch"
   },
   "devDependencies": {
     "prettier": "^2.8.8",
