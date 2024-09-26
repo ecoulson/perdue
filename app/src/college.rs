@@ -67,24 +67,13 @@ pub struct StudentDirectoryRow {
 }
 
 #[derive(Template)]
-#[template(path = "string_input.html")]
-pub struct StringFilter {
-    name: String,
-}
-
-#[derive(Template)]
 #[template(path = "directory_filter_menu.html")]
 pub struct DirectoryFilterMenu {
-    pub column: Column,
-}
-
-pub enum FilterType {
-    String(StringFilter),
+    pub columns: Vec<Column>,
 }
 
 pub struct Column {
     pub name: String,
-    pub filter: FilterType,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -101,12 +90,26 @@ struct CreateDirectoryFilterRequest {
 pub fn build_directory_filter_menu() -> Response<Cursor<Vec<u8>>> {
     Response::from_string(
         DirectoryFilterMenu {
-            column: Column {
-                name: String::from("Id"),
-                filter: FilterType::String(StringFilter {
-                    name: String::from("value"),
-                }),
-            },
+            columns: vec![
+                Column {
+                    name: String::from("Id"),
+                },
+                Column {
+                    name: String::from("Name"),
+                },
+                Column {
+                    name: String::from("Email"),
+                },
+                Column {
+                    name: String::from("Department"),
+                },
+                Column {
+                    name: String::from("Year"),
+                },
+                Column {
+                    name: String::from("AmountUsd"),
+                },
+            ],
         }
         .to_string(),
     )
