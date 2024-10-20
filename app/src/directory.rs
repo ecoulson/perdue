@@ -344,8 +344,8 @@ fn build_rows(mut statement: Statement) -> Vec<StudentDirectoryRow> {
                 .collect::<Vec<String>>()
                 .join(" "),
             office: Office {
-                building: row.get("Building").unwrap(),
-                room: row.get("Room").unwrap(),
+                building: row.get("Building").unwrap_or(String::new()),
+                room: row.get("Room").unwrap_or(String::new()),
             },
             yearly_compensation: format!("${}.{}", compensation_buffer.to_string(), cents),
             year,

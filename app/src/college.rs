@@ -1,4 +1,4 @@
-use std::{io::Cursor, str::FromStr};
+use std::{collections::HashSet, io::Cursor, str::FromStr};
 
 use askama::Template;
 use num_format::{Buffer, Locale};
@@ -191,24 +191,6 @@ pub fn store_students(
             })
             .collect::<Vec<String>>()
             .join("UNION ALL ");
-        let office_query = students_chunk
-            .iter()
-            .filter_map(|student| match student {
-                Ok(student) => Some(format!(
-                    "SELECT '{}' AS OfficeId, '{}' AS StudentId,
-                      '{}' AS Building, '{}' AS Room\n",
-                    generate_id(),
-                    student.id,
-                    student.office.building,
-                    student.office.room,
-                )),
-                Err(error) => {
-                    eprintln!("{}", error);
-                    None
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("UNION ALL ");
         connection_pool
             .get()
             .unwrap()
@@ -219,6 +201,60 @@ pub fn store_students(
                 [],
             )
             .unwrap();
+    }
+
+    store_offices(students, connection_pool)
+}
+
+fn store_offices(
+    students: &Vec<Result<GraduateStudent, Status>>,
+    connection_pool: &Pool<SqliteConnectionManager>,
+) {
+    let connection = connection_pool.get().unwrap();
+    let mut students_with_offices_statements = connection
+        .prepare(
+            "SELECT StudentId FROM Offices 
+            JOIN Students
+            ON Offices.StudentId = Students.Id",
+        )
+        .unwrap();
+    let mut students_with_offices_query = students_with_offices_statements.query([]).unwrap();
+    let mut student_ids_with_offices: HashSet<String> = HashSet::new();
+
+    while let Ok(Some(row)) = students_with_offices_query.next() {
+        student_ids_with_offices.insert(row.get("StudentId").unwrap());
+    }
+
+    for students_chunk in students.chunks(50) {
+        let office_rows = students_chunk
+            .iter()
+            .filter_map(|student| match student {
+                Ok(student) => {
+                    if student_ids_with_offices.contains(&student.id) {
+                        return None;
+                    }
+
+                    Some(format!(
+                        "SELECT '{}' AS OfficeId, '{}' AS StudentId,
+                      '{}' AS Building, '{}' AS Room\n",
+                        generate_id(),
+                        student.id,
+                        student.office.building,
+                        student.office.room,
+                    ))
+                }
+                Err(error) => {
+                    eprintln!("{}", error);
+                    None
+                }
+            })
+            .collect::<Vec<String>>();
+        
+        if office_rows.is_empty() {
+            return;
+        }
+
+        let office_query = office_rows.join("UNION ALL ");
         connection_pool
             .get()
             .unwrap()
