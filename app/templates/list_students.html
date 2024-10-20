@@ -14,13 +14,12 @@
             </button>
             <div class="filter-form absolute" 
                 hx-trigger="close-directory-filter-menu from:body, mouseexit" 
-                hx-get="/empty_fragment" 
-                hx-swap="innerHTML">
+                hx-swap="delete">
             </div>
         </div>
     </div>
 </div>
-<div hx-trigger="filter-directory from:body" hx-get="/directory" hx-swap="innerHTML">
-    {% include "directory.html" %}
+<div hx-trigger="filter-directory from:body" hx-get="/directory" hx-swap="innerHTML" >
+    {{directory|safe}}
 </div>
 {% endblock %}

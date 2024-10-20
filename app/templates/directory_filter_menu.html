@@ -2,7 +2,7 @@
     <div>
         <select name="column">
             {% for column in columns %}
-            <option value="{{column.name}}">{{column.name}}</option>
+            <option value="{{column.name}}">{{column.formatted_name}}</option>
             {% endfor %}
         </select>
         <input name="value" />

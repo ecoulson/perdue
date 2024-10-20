@@ -1,9 +1,12 @@
 pub mod agriculture;
 pub mod college;
 pub mod configuration;
+pub mod directory;
 pub mod error;
 pub mod health;
 pub mod html;
+pub mod http;
+pub mod id;
 pub mod liberal_arts;
 pub mod parser;
 pub mod pipeline;

@@ -1,0 +1,15 @@
+<th class="w-1/2 border border-slate-300 dark:border-slate-600 font-semibold p-4 text-slate-900 dark:text-slate-200 text-left"
+  hx-post="/sort_directory" hx-swap="outerHTML" hx-include="this">
+    <div class="flex gap-x-2">
+        <input hidden name="column" value="{{column}}" />
+        <input hidden name="state" value="{{sort_state}}"/> 
+        <span>{{formated_column}}</span>
+        {% match sort_state %}
+        {% when SortState::Ascending %}
+        <img class="w-6" alt="Ascending" src="assets/up-arrow.png" />
+        {% when SortState::Descending %}
+        <img class="w-6 rotate-180" alt="Descending" src="assets/up-arrow.png" />
+        {% when SortState::Unsorted %}
+        {% endmatch %}
+    </div>
+</th>

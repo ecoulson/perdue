@@ -10,7 +10,7 @@ pub struct Configuration {
 
 #[derive(Deserialize)]
 pub struct Files {
-    pub salaries_directory: String,
+    pub salaries_path: String,
     pub assets_directory: String,
 }
 

@@ -555,7 +555,7 @@ async fn run(state: &Arc<ServerState>) {
     println!("Done storing students...");
     println!("Done processing students...");
     println!("Processing salaries...");
-    let salaries = process_salaries(&state.connection_pool, &state.configuration.files.salaries_directory);
+    let salaries = process_salaries(&state.connection_pool, &state.configuration.files.salaries_path);
     store_salaries(&salaries, &state.connection_pool);
     println!("Done processing salaries...");
 }

@@ -11,11 +11,12 @@ use r2d2_sqlite::SqliteConnectionManager;
 use tiny_http::{Header, Method, Request, Response, Server};
 
 use crate::{
-    college::{
-        build_directory, build_directory_filter_menu, create_directory_filter,
-        delete_directory_filter, display_college, list_students,
-    },
+    college::display_college,
     configuration::Configuration,
+    directory::{
+        build_directory, build_directory_filter_menu, create_directory_filter,
+        delete_directory_filter, list_students, sort_directory,
+    },
 };
 
 pub struct ServerState {
@@ -80,6 +81,10 @@ fn route(mut request: Request, state: &Arc<ServerState>) {
         }
         (Method::Post, "/create_directory_filter") => {
             let response = create_directory_filter(&mut request);
+            request.respond(response).unwrap()
+        }
+        (Method::Post, "/sort_directory") => {
+            let response = sort_directory(&mut request);
             request.respond(response).unwrap()
         }
         (Method::Get, "/empty_fragment") => request.respond(empty_fragment()).unwrap(),
