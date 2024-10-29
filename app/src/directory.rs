@@ -1,9 +1,7 @@
-use std::{fmt::Display, io::Cursor, str::FromStr};
+use std::{fmt::Display, io::Cursor, str::FromStr, sync::Arc};
 
 use askama::Template;
 use num_format::{Buffer, Locale};
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{Connection, Statement};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Request, Response};
@@ -11,7 +9,7 @@ use tiny_http::{Header, Request, Response};
 use crate::{
     college::Office,
     http::{extract_query, find_header, parse_form_data},
-    server::empty_fragment,
+    server::{empty_fragment, ServerState},
 };
 
 #[derive(Template)]
@@ -133,7 +131,6 @@ pub fn sort_directory(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             ))
             .unwrap(),
         )
-        .with_header(Header::from_str("HX-Trigger: close-directory-filter-menu").unwrap())
         .with_header(Header::from_str("HX-Trigger-After-Settle: filter-directory").unwrap())
 }
 
@@ -236,15 +233,12 @@ pub fn create_directory_filter(request: &mut Request) -> Response<Cursor<Vec<u8>
         ))
         .unwrap(),
     )
-    .with_header(Header::from_str("HX-Trigger: close-directory-filter-menu").unwrap())
     .with_header(Header::from_str("HX-Trigger-After-Settle: filter-directory").unwrap())
+    .with_header(Header::from_str("HX-Trigger-After-Settle: close-directory-filter-menu").unwrap())
 }
 
-pub fn build_directory(
-    request: &Request,
-    connection_pool: &Pool<SqliteConnectionManager>,
-) -> Response<Cursor<Vec<u8>>> {
-    let connection = connection_pool.get().unwrap();
+pub fn build_directory(request: &Request, context: &Arc<ServerState>) -> Response<Cursor<Vec<u8>>> {
+    let connection = context.connection_pool.get().unwrap();
     let url = find_header(request, "HX-Current-Url").unwrap();
     let query: DirectoryQuery = extract_query(url.value.as_str()).unwrap();
 
@@ -355,11 +349,8 @@ fn build_rows(mut statement: Statement) -> Vec<StudentDirectoryRow> {
     directory
 }
 
-pub fn list_students(
-    request: &Request,
-    connection_pool: &Pool<SqliteConnectionManager>,
-) -> Response<Cursor<Vec<u8>>> {
-    let connection = connection_pool.get().unwrap();
+pub fn list_students(request: &Request, context: &Arc<ServerState>) -> Response<Cursor<Vec<u8>>> {
+    let connection = context.connection_pool.get().unwrap();
     let query: DirectoryQuery = extract_query(request.url()).unwrap();
     let filters: Vec<DirectoryFilter> = query
         .filters

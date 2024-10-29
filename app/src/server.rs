@@ -1,6 +1,6 @@
 use std::{
     fs::{read_dir, File},
-    io::Cursor,
+    io::{Cursor, Read},
     str::FromStr,
     sync::Arc,
     thread,
@@ -8,7 +8,7 @@ use std::{
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use tiny_http::{Header, Method, Request, Response, Server};
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::{
     college::display_college,
@@ -41,7 +41,10 @@ pub fn start_server(state: Arc<ServerState>) {
 
         workers.push(thread::spawn(move || loop {
             match server.recv() {
-                Ok(request) => route(request, &state),
+                Ok(mut request) => {
+                    let response = route(&mut request, &state);
+                    request.respond(response).unwrap();
+                }
                 Err(error) => {
                     eprintln!("error: {}", error)
                 }
@@ -58,45 +61,30 @@ fn get_route_key(request: &Request) -> (&Method, &str) {
     (request.method(), remove_query(request.url()))
 }
 
-fn route(mut request: Request, state: &Arc<ServerState>) {
-    match get_route_key(&request) {
-        (Method::Get, "/") => {
-            let response = list_students(&request, &state.connection_pool);
-            request.respond(response).unwrap();
+// PERF NOTE: We are using dynamic dispatch it is slower with Box<dyn Read + Send>
+// can swap to an enum to wrap the type if this is a bottleneck
+fn route(request: &mut Request, state: &Arc<ServerState>) -> Response<Box<dyn Read + Send>> {
+    match get_route_key(request) {
+        (Method::Get, "/") => list_students(&request, &state).boxed(),
+        (Method::Get, "/college") => display_college(&request, &state).boxed(),
+        (Method::Get, "/directory") => build_directory(&request, &state).boxed(),
+        (Method::Delete, "/remove_directory_filter") => delete_directory_filter(request).boxed(),
+        (Method::Get, "/directory_filter_menu") => build_directory_filter_menu().boxed(),
+        (Method::Post, "/create_directory_filter") => create_directory_filter(request).boxed(),
+        (Method::Post, "/sort_directory") => sort_directory(request).boxed(),
+        (Method::Get, "/member") if request.url().starts_with("/member") => Response::from_string("epically in progress")
+            .with_status_code(StatusCode::from(200))
+            .boxed(),
+        (Method::Get, _) if request.url().starts_with("/assets") => serve_directory(
+            &request,
+            "/assets",
+            &state.configuration.files.assets_directory,
+        )
+        .boxed(),
+        _ => {
+            println!("Unhandled route {}", request.url());
+            Response::empty(StatusCode::from(404)).boxed()
         }
-        (Method::Get, "/college") => {
-            let response = display_college(&request, &state.connection_pool);
-            request.respond(response).unwrap()
-        }
-        (Method::Get, "/directory") => {
-            let response = build_directory(&request, &state.connection_pool);
-            request.respond(response).unwrap()
-        }
-        (Method::Delete, "/remove_directory_filter") => {
-            let response = delete_directory_filter(&mut request);
-            request.respond(response).unwrap()
-        }
-        (Method::Get, "/directory_filter_menu") => {
-            request.respond(build_directory_filter_menu()).unwrap()
-        }
-        (Method::Post, "/create_directory_filter") => {
-            let response = create_directory_filter(&mut request);
-            request.respond(response).unwrap()
-        }
-        (Method::Post, "/sort_directory") => {
-            let response = sort_directory(&mut request);
-            request.respond(response).unwrap()
-        }
-        (Method::Get, "/empty_fragment") => request.respond(empty_fragment()).unwrap(),
-        (Method::Get, _) if request.url().starts_with("/assets") => {
-            let response = serve_directory(
-                &request,
-                "/assets",
-                &state.configuration.files.assets_directory,
-            );
-            request.respond(response).unwrap()
-        }
-        _ => println!("Unhandled route {}", request.url()),
     }
 }
 

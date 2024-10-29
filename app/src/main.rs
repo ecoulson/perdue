@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use configuration::read_configuration;
 use perdue::{
-    configuration::Configuration,
+    configuration::{read_configuration, Configuration},
     pipeline::start_pipeline,
     server::{start_server, ServerState},
 };
@@ -21,7 +20,7 @@ async fn main() {
         .unwrap();
     let state = Arc::new(ServerState {
         connection_pool: connection_pool.clone(),
-        configuration
+        configuration,
     });
     let connection = connection_pool.get().unwrap();
     let version: usize = connection

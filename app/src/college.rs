@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Cursor, str::FromStr};
+use std::{collections::HashSet, io::Cursor, str::FromStr, sync::Arc};
 
 use askama::Template;
 use num_format::{Buffer, Locale};
@@ -7,7 +7,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Request, Response};
 
-use crate::{directory::StudentDirectoryRow, error::Status, id::generate_id};
+use crate::{directory::StudentDirectoryRow, error::Status, id::generate_id, server::ServerState};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
 pub struct Office {
@@ -43,10 +43,10 @@ pub struct CollegePage {
 // Renders a page with information about the college and all graduate students in the college
 pub fn display_college(
     request: &Request,
-    connection_pool: &Pool<SqliteConnectionManager>,
+    context: &Arc<ServerState>
 ) -> Response<Cursor<Vec<u8>>> {
     let college_id = request.url().split("/college/").skip(1).next().unwrap();
-    let connection = connection_pool.get().unwrap();
+    let connection = context.connection_pool.get().unwrap();
     let mut college_statement = connection
         .prepare("SELECT Id, Name, Url FROM Colleges WHERE Id = ?1")
         .unwrap();

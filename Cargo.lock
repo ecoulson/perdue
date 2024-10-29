@@ -189,17 +189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "confquick"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31bf3c663253d2c07f5e1dc9fd563d17490fb258b5b5f5989d82ca2e4823e5ee"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -804,9 +793,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 name = "migrate"
 version = "0.1.0"
 dependencies = [
- "confquick 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusqlite",
- "serde",
 ]
 
 [[package]]
@@ -1014,7 +1001,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "askama",
- "confquick 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv",
  "futures",
  "mock_http 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1027,6 +1013,7 @@ dependencies = [
  "rusqlite",
  "scraper",
  "serde",
+ "serde_json",
  "serde_qs",
  "serde_urlencoded",
  "tiny_http",
@@ -1508,9 +1495,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.128"
+version = "1.0.132"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
+checksum = "d726bfaff4b320266d395898905d0eba0345aae23b54aee3a737e260fd46db03"
 dependencies = [
  "itoa",
  "memchr",

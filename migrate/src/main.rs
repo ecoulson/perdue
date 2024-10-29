@@ -1,19 +1,12 @@
-use std::{env, fs::DirEntry};
+use std::fs::DirEntry;
 
-use configuration::read_configuration;
-use migrate::configuration::Configuration;
+use migrate::configuration::{parse_arguments, Direction};
 use rusqlite::Connection;
 
 #[derive(Debug)]
 struct Migration {
     id: usize,
     entry: DirEntry,
-}
-
-#[derive(PartialEq)]
-enum Direction {
-    Up,
-    Down,
 }
 
 impl Migration {
@@ -24,17 +17,9 @@ impl Migration {
 
 fn main() {
     println!("Migrating db...");
-    let configuration: Configuration =
-        read_configuration("ENVIRONMENT", "MIGRATION_CONFIGURATION_PATH")
-            .unwrap_or_else(|error| panic!("{}", error.to_string()));
-    let mut args = env::args().skip(1);
-    let database_path = configuration.database.connection_type.as_str();
-    let migrations_directory = configuration.migration_path;
-    let direction = match args.next().unwrap().to_lowercase().as_str() {
-        "up" => Direction::Up,
-        "down" => Direction::Down,
-        _ => panic!("Invalid direction"),
-    };
+    let arguments = parse_arguments();
+    let database_path = arguments.database_connection;
+    let migrations_directory = arguments.migration_path;
     let mut migrations: Vec<Migration> = vec![];
     let mut connection = Connection::open(database_path).unwrap();
     let directory_info = std::fs::read_dir(&migrations_directory).unwrap();
@@ -73,22 +58,22 @@ fn main() {
             _ => panic!("Invalid direction"),
         };
 
-        if entry_direction != direction {
+        if entry_direction != arguments.migration_direction {
             continue;
         }
 
         migrations.push(Migration::new(id, entry));
     }
 
-    match direction {
+    match arguments.migration_direction {
         Direction::Up => migrations.sort_by(|a, b| a.id.cmp(&b.id)),
         Direction::Down => migrations.sort_by(|a, b| b.id.cmp(&a.id)),
     }
 
-    let target_version = if let Some(version) = args.next() {
-        version.parse().unwrap()
+    let target_version = if let Some(version) = arguments.target_version {
+        version
     } else {
-        match direction {
+        match arguments.migration_direction {
             Direction::Up => migrations.last().unwrap().id,
             Direction::Down => migrations.last().unwrap().id - 1,
         }
@@ -97,7 +82,7 @@ fn main() {
     let transaction = connection.transaction().unwrap();
 
     for migration in migrations {
-        match direction {
+        match arguments.migration_direction {
             Direction::Up if migration.id <= current_version => continue,
             Direction::Up if migration.id > target_version => continue,
             Direction::Down if migration.id > current_version => continue,
